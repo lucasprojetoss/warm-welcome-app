@@ -1,0 +1,11 @@
+{
+  "name": "Lucas Gravações",
+  "short_name": "Lucas Gravações",
+  "description": "Auto Vinhetas, equalização e processamento de áudio em lote.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111514",
+  "theme_color": "#191f1d",
+  "lang": "pt-BR"
+}
