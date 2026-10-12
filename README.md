@@ -22,3 +22,37 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+
+## Lucas Gravações Desktop (Electron)
+
+A versão desktop reaproveita o mesmo `index.html` do sistema e abre em uma janela Electron própria.
+
+### Testar no Windows
+
+É necessário ter Node.js e npm instalados. Depois, dentro da pasta do projeto:
+
+```sh
+npm install
+npm run electron:start
+```
+
+O Electron abre o Lucas Gravações como programa de computador. A janela foi configurada com processamento de fundo sem throttling e ativa proteção contra suspensão enquanto um lote estiver em andamento.
+
+### Gerar instalador do Windows
+
+```sh
+npm run electron:dist
+```
+
+O instalador será gerado em `dist-electron/`.
+
+### Estrutura Electron
+
+- `electron/main.cjs` — processo principal do aplicativo.
+- `electron/preload.cjs` — ponte segura entre a interface e o processo principal.
+- `index.html` — mesma interface usada no navegador/PWA.
+- `analysis-worker.js` — análise musical em Worker.
+- `mp3-worker.js` — mixagem/codificação MP3 em Worker.
+
+Enquanto há processamento, a interface avisa o Electron para usar `powerSaveBlocker` com `prevent-app-suspension`. A janela também usa `backgroundThrottling: false`, para que minimizar não reduza os timers e Workers como acontece no navegador comum.
