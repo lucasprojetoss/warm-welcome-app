@@ -70,8 +70,10 @@ async function syncDesktopInfo(){const badge=$('appVersion');if(!badge)return;ba
 syncDesktopInfo();
 let lastPreviewUrl=null,originalPreviewUrl=null,previewEntries=[],exportedFiles=[],cancelRequested=false,processing=false;
 let insertionPreviewUrl=null,insertionMixUrl=null,insertionPoint=null,insertionDuration=0;let lastAutoAnalysis=null;let defaultJingleFile=null;let previewSongStates=[];let previewAuthorized=false;let preparedPreviews=[];let previewBatchToken=0;let previewPreparing=false;let autoFinalizeQueue=[],pipelineResolvers=[],previewProductionDone=false,autoFinalizeActive=false;
+let desktopTracks=[],desktopFolder=null,replaceOriginals=true,resumeState=null,resumedCompletedPaths=[],batchOriginalTotal=0,finalizedCount=0,currentWork='Aguardando',batchCompleted=false;
+const isElectron=()=>!!(window.lucasDesktop&&window.lucasDesktop.isElectron);
 const activeJingle=()=>($('jingle').files&&$('jingle').files[0])||defaultJingleFile;
-const tracks=()=>Array.from($('tracks').files).slice(0,100);
+const tracks=()=>desktopTracks.length?desktopTracks:Array.from($('tracks').files).slice(0,100);
 const AUTO_DUCK_DB=-4,AUTO_JINGLE_GAIN=1;
 let insertionMode=localStorage.getItem('lucas_insertion_mode')==='manual'?'manual':'auto';
 let manualInsertTime=Math.max(0,Number(localStorage.getItem('lucas_manual_insert_time')||30));
@@ -79,27 +81,99 @@ let manualDuckDb=Math.max(-12,Math.min(0,Number(localStorage.getItem('lucas_manu
 function currentDuckDb(){return insertionMode==='manual'?manualDuckDb:AUTO_DUCK_DB}
 async function chooseInsertionPoint(music,jingle){lastAutoAnalysis=null;if(insertionMode==='manual'){const t=manualInsertTime;return Number.isFinite(t)?t:NaN}try{const result=await analyzeInBackgroundWorker(music,jingle.duration);lastAutoAnalysis=result.analysis||null;return result.point}catch(e){if($('previewBatchStatus'))$('previewBatchStatus').textContent='Analisador Worker indisponível; usando modo compatibilidade.';return await detect(music,jingle.duration)}}
 
+function makeDesktopFile(meta){
+  const size=Number(meta.size)||0,sourcePath=meta.path;
+  const reader=(start=0,end=size)=>window.lucasDesktop.readMusicFile(sourcePath,start,end);
+  return {
+    name:meta.name,size,type:meta.type||'audio/mpeg',lastModified:meta.mtimeMs||Date.now(),sourcePath,
+    arrayBuffer:()=>reader(0,size),
+    slice(start=0,end=size){const a=Math.max(0,Number(start)||0),b=Math.max(a,Math.min(size,Number(end)||size));return {size:b-a,type:'audio/mpeg',arrayBuffer:()=>reader(a,b)}}
+  };
+}
+
+function currentBatchTotal(){return batchOriginalTotal||tracks().length}
+function updateDashboard(){
+  const total=currentBatchTotal(),previewReady=previewSongStates.filter(x=>x.status==='ready').length;
+  $('dashTotal').textContent=total+' música'+(total===1?'':'s');
+  $('dashPreview').textContent=previewReady+' pronta'+(previewReady===1?'':'s');
+  $('dashFinalized').textContent=finalizedCount+' pronta'+(finalizedCount===1?'':'s');
+  $('dashCurrent').textContent=currentWork||'Aguardando';
+  $('dashBackground').textContent=processing||previewPreparing?'ATIVO':'PRONTO';
+  const percent=total?Math.round(finalizedCount/total*100):0;
+  if(isElectron())window.lucasDesktop.updateProgress({total,previewReady,finalized:finalizedCount,percent,current:currentWork||'Aguardando',completed:batchCompleted});
+}
+
+async function blobPayload(blob,name,type){if(!blob)return null;return {name:name||'arquivo',type:type||blob.type||'application/octet-stream',bytes:await blob.arrayBuffer()}}
+async function persistDesktopDefaults(options={}){
+  if(!isElectron())return;
+  const payload={
+    insertionMode,manualInsertTime,manualDuckDb,replaceOriginals,
+    metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||''},
+    removeJingle:!!options.removeJingle,removeCover:!!options.removeCover
+  };
+  if(options.jingle){payload.jingle=await blobPayload(options.jingle,options.jingle.name,options.jingle.type)}
+  if(options.cover){payload.cover=await blobPayload(options.cover.blob||options.cover,options.cover.name,options.cover.type)}
+  await window.lucasDesktop.saveDefaults(payload);
+}
 
 const JINGLE_DB='lucas_gravacoes_settings_v1',JINGLE_STORE='settings',JINGLE_KEY='defaultJingle';
 const META_KEY='defaultMetadata';let defaultMetadata={artist:'',composer:'',album:'',cover:null};
 
 function openSettingsDb(){return new Promise((resolve,reject)=>{const r=indexedDB.open(JINGLE_DB,1);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(JINGLE_STORE))db.createObjectStore(JINGLE_STORE)};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
-async function saveDefaultMetadataSettings(){const coverFile=$('defaultCover').files&&$('defaultCover').files[0];if(coverFile&&(!['image/jpeg','image/png'].includes(coverFile.type)||coverFile.size>10*1024*1024))throw Error('A capa deve ser JPG ou PNG de até 10 MB.');const db=await openSettingsDb(),currentCover=coverFile?{blob:coverFile,name:coverFile.name,type:coverFile.type}:defaultMetadata.cover;const data={artist:$('defaultArtist').value.trim(),composer:$('defaultComposer').value.trim(),album:$('defaultAlbum').value.trim(),cover:currentCover};await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(data,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();defaultMetadata=data;$('defaultCover').value='';renderDefaultMetadata();$('defaultMetadataStatus').textContent='Padrão salvo. Será aplicado automaticamente aos próximos MP3.'}
+async function saveDefaultMetadataSettings(){
+  const coverFile=$('defaultCover').files&&$('defaultCover').files[0];
+  if(coverFile&&(!['image/jpeg','image/png'].includes(coverFile.type)||coverFile.size>10*1024*1024))throw Error('A capa deve ser JPG ou PNG de até 10 MB.');
+  const db=await openSettingsDb(),currentCover=coverFile?{blob:coverFile,name:coverFile.name,type:coverFile.type}:defaultMetadata.cover;
+  const data={artist:$('defaultArtist').value.trim(),composer:$('defaultComposer').value.trim(),album:$('defaultAlbum').value.trim(),cover:currentCover};
+  await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(data,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();
+  defaultMetadata=data;
+  await persistDesktopDefaults(coverFile?{cover:{blob:coverFile,name:coverFile.name,type:coverFile.type}}:{});
+  $('defaultCover').value='';renderDefaultMetadata();$('defaultMetadataStatus').textContent='Padrão salvo permanentemente e será aplicado aos próximos MP3.'
+}
 async function loadDefaultMetadataSettings(){try{const db=await openSettingsDb(),data=await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readonly'),r=tx.objectStore(JINGLE_STORE).get(META_KEY);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error)});db.close();if(data)defaultMetadata={artist:data.artist||'',composer:data.composer||'',album:data.album||'',cover:data.cover||null}}catch(e){}renderDefaultMetadata()}
-async function persistDefaultMetadata(){const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(defaultMetadata,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}
+async function persistDefaultMetadata(){const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(defaultMetadata,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();if(isElectron())await persistDesktopDefaults({removeCover:!defaultMetadata.cover})}
 function renderDefaultMetadata(){$('defaultArtist').value=defaultMetadata.artist||'';$('defaultComposer').value=defaultMetadata.composer||'';$('defaultAlbum').value=defaultMetadata.album||'';const box=$('defaultCoverPreview');box.replaceChildren();if(defaultMetadata.cover&&defaultMetadata.cover.blob){const url=URL.createObjectURL(defaultMetadata.cover.blob),img=document.createElement('img');img.src=url;img.alt='Capa padrão';img.style.cssText='width:150px;height:150px;object-fit:cover;border-radius:10px;border:1px solid #46534e';img.onload=()=>URL.revokeObjectURL(url);box.append(img)}else box.textContent='Nenhuma capa padrão salva.';$('defaultMetadataStatus').textContent=(defaultMetadata.artist||defaultMetadata.composer||defaultMetadata.album||defaultMetadata.cover)?'Padrão carregado e ativo.':'Nenhum metadado padrão salvo ainda.';$('removeDefaultCover').disabled=!defaultMetadata.cover}
 $('saveDefaultMetadata').addEventListener('click',async()=>{try{$('saveDefaultMetadata').disabled=true;$('defaultMetadataStatus').textContent='Salvando padrão...';await saveDefaultMetadataSettings()}catch(e){$('defaultMetadataStatus').textContent='Não foi possível salvar: '+e.message}finally{$('saveDefaultMetadata').disabled=false}});
 $('removeDefaultCover').addEventListener('click',async()=>{defaultMetadata.cover=null;await persistDefaultMetadata();renderDefaultMetadata();$('defaultMetadataStatus').textContent='Capa padrão removida.'});
 $('defaultCover').addEventListener('change',()=>{const file=$('defaultCover').files&&$('defaultCover').files[0];if(!file)return;const box=$('defaultCoverPreview');box.replaceChildren();const url=URL.createObjectURL(file),img=document.createElement('img');img.src=url;img.alt='Nova capa padrão';img.style.cssText='width:150px;height:150px;object-fit:cover;border-radius:10px;border:1px solid #46534e';img.onload=()=>URL.revokeObjectURL(url);box.append(img)});
-loadDefaultMetadataSettings();
 
-async function saveDefaultJingleFile(file){const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put({blob:file,name:file.name,type:file.type,lastModified:file.lastModified||Date.now()},JINGLE_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();defaultJingleFile=new File([file],file.name,{type:file.type,lastModified:file.lastModified||Date.now()});updateDefaultJingleStatus()}
+async function saveDefaultJingleFile(file){
+  const db=await openSettingsDb();
+  await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put({blob:file,name:file.name,type:file.type,lastModified:file.lastModified||Date.now()},JINGLE_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();
+  defaultJingleFile=new File([file],file.name,{type:file.type,lastModified:file.lastModified||Date.now()});
+  await persistDesktopDefaults({jingle:file});
+  updateDefaultJingleStatus()
+}
 async function loadDefaultJingleFile(){try{const db=await openSettingsDb(),data=await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readonly'),r=tx.objectStore(JINGLE_STORE).get(JINGLE_KEY);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error)});db.close();defaultJingleFile=data&&data.blob?new File([data.blob],data.name||'vinheta-padrao.mp3',{type:data.type||data.blob.type,lastModified:data.lastModified||Date.now()}):null}catch(e){defaultJingleFile=null}updateDefaultJingleStatus();updatePreparePreviewButton()}
-async function removeDefaultJingleFile(){try{const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).delete(JINGLE_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch(e){}defaultJingleFile=null;updateDefaultJingleStatus();invalidatePreviewPreparation('Vinheta padrão removida. Confirme novamente antes da prévia.')}
-function updateDefaultJingleStatus(){const current=$('jingle').files&&$('jingle').files[0],s=$('defaultJingleStatus');if(current)s.textContent='Vinheta escolhida agora: '+current.name+' • clique em “Salvar atual como padrão” se quiser substituir a padrão.';else if(defaultJingleFile)s.textContent='Padrão ativo: '+defaultJingleFile.name+' • será usada automaticamente nos próximos lotes.';else s.textContent='Nenhuma vinheta padrão salva.';$('removeDefaultJingle').disabled=!defaultJingleFile}
-$('saveDefaultJingle').addEventListener('click',async()=>{const file=$('jingle').files&&$('jingle').files[0];if(!file){$('defaultJingleStatus').textContent='Escolha uma nova vinheta no campo acima antes de salvar como padrão.';return}try{$('saveDefaultJingle').disabled=true;$('defaultJingleStatus').textContent='Salvando vinheta padrão...';await saveDefaultJingleFile(file);invalidatePreviewPreparation('Vinheta padrão atualizada. Clique em OK para preparar a prévia.')}catch(e){$('defaultJingleStatus').textContent='Não foi possível salvar a vinheta padrão: '+e.message}finally{$('saveDefaultJingle').disabled=false}});
+async function removeDefaultJingleFile(){try{const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).delete(JINGLE_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch(e){}defaultJingleFile=null;if(isElectron())await persistDesktopDefaults({removeJingle:true});updateDefaultJingleStatus();invalidatePreviewPreparation('Vinheta padrão removida. Confirme novamente antes da prévia.')}
+function updateDefaultJingleStatus(){const current=$('jingle').files&&$('jingle').files[0],st=$('defaultJingleStatus');if(current)st.textContent='Vinheta escolhida agora: '+current.name+' • clique em “Salvar atual como padrão” se quiser substituir a padrão.';else if(defaultJingleFile)st.textContent='Padrão ativo: '+defaultJingleFile.name+' • fica salva no programa.';else st.textContent='Nenhuma vinheta padrão salva.';$('removeDefaultJingle').disabled=!defaultJingleFile}
+$('saveDefaultJingle').addEventListener('click',async()=>{const file=$('jingle').files&&$('jingle').files[0];if(!file){$('defaultJingleStatus').textContent='Escolha uma nova vinheta no campo acima antes de salvar como padrão.';return}try{$('saveDefaultJingle').disabled=true;$('defaultJingleStatus').textContent='Salvando vinheta padrão...';await saveDefaultJingleFile(file);invalidatePreviewPreparation('Vinheta padrão atualizada.')}catch(e){$('defaultJingleStatus').textContent='Não foi possível salvar a vinheta padrão: '+e.message}finally{$('saveDefaultJingle').disabled=false}});
 $('removeDefaultJingle').addEventListener('click',removeDefaultJingleFile);
-loadDefaultJingleFile();
+
+async function loadDesktopPersistentState(){
+  if(!isElectron())return;
+  const data=await window.lucasDesktop.loadDefaults();
+  if(data){
+    if(data.insertionMode)insertionMode=data.insertionMode==='manual'?'manual':'auto';
+    if(Number.isFinite(data.manualInsertTime))manualInsertTime=data.manualInsertTime;
+    if(Number.isFinite(data.manualDuckDb))manualDuckDb=data.manualDuckDb;
+    replaceOriginals=data.replaceOriginals!==false;
+    if(data.metadata)defaultMetadata={...defaultMetadata,artist:data.metadata.artist||'',composer:data.metadata.composer||'',album:data.metadata.album||''};
+    if(data.coverData&&data.coverData.bytes){const blob=new Blob([data.coverData.bytes],{type:data.coverData.type||'image/jpeg'});defaultMetadata.cover={blob,name:data.coverData.name||'capa-padrao.jpg',type:data.coverData.type||'image/jpeg'}}
+    if(data.jingleData&&data.jingleData.bytes)defaultJingleFile=new File([data.jingleData.bytes],data.jingleData.name||'vinheta-padrao.mp3',{type:data.jingleData.type||'audio/mpeg',lastModified:Date.now()});
+  }
+  localStorage.setItem('lucas_insertion_mode',insertionMode);
+  localStorage.setItem('lucas_manual_insert_time',String(manualInsertTime));
+  localStorage.setItem('lucas_manual_duck_db',String(manualDuckDb));
+  $('replaceOriginals').checked=replaceOriginals;
+  renderDefaultMetadata();updateDefaultJingleStatus();updateInsertionModeUI();updatePreparePreviewButton();
+}
+
+async function initializePersistentState(){
+  await Promise.all([loadDefaultMetadataSettings(),loadDefaultJingleFile()]);
+  try{await loadDesktopPersistentState()}catch(e){console.warn('Persistência desktop:',e)}
+}
+initializePersistentState();
 
 function formatClock(sec){if(!Number.isFinite(sec))return '--:--';const m=Math.floor(sec/60),ss=(sec-m*60).toFixed(1).padStart(4,'0');return m+':'+ss}
 function updatePreparePreviewButton(){const btn=$('preparePreview');if(!btn)return;const hasTracks=tracks().length>0,hasJingle=!!activeJingle();btn.disabled=!hasTracks||!hasJingle;const st=$('preparePreviewStatus');if(!hasTracks)st.textContent='Adicione pelo menos uma música.';else if(!hasJingle)st.textContent='Escolha uma vinheta ou use a vinheta padrão.';else if(previewAuthorized)st.textContent='Prévia preparada. Se mudar alguma configuração, confirme novamente.';else st.textContent='Tudo pronto. Clique em OK quando quiser iniciar a prévia.'}
