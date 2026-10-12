@@ -66,7 +66,7 @@ function batchStatePath() {
 }
 
 function miniPositionPath() {
-  return path.join(dataRoot(), 'posicao-popup.json');
+  return path.join(dataRoot(), 'posicao-popup-topo.json');
 }
 
 function safeJsonRead(file, fallback = null) {
@@ -247,7 +247,7 @@ function positionMiniWindow(useSaved = true) {
 
   const display = getTargetDisplay();
   const area = display.workArea;
-  miniWindow.setPosition(area.x + area.width - w - 18, area.y + area.height - h - 18, false);
+  miniWindow.setPosition(area.x + area.width - w - 18, area.y + 18, false);
 }
 
 function saveMiniPosition() {
@@ -294,12 +294,9 @@ async function ensureMiniPanelVisible() {
   const win = await createMiniWindow();
   positionMiniWindow(true);
   win.webContents.send('mini:status', currentProgress);
-  win.showInactive();
-  await new Promise(resolve => setTimeout(resolve, 80));
-  if (!win.isVisible()) {
-    win.show();
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
+  win.show();
+  win.moveTop();
+  await new Promise(resolve => setTimeout(resolve, 140));
   if (!win.isVisible()) throw new Error('O Windows não exibiu o painel flutuante.');
   return win;
 }
@@ -309,15 +306,20 @@ async function showMiniPanel() {
   await ensureMiniPanelVisible();
 }
 
-async function enterPopupMode() {
+async function activatePopupAfterMinimize() {
   if (!mainWindow || mainWindow.isDestroyed() || popupMode) return;
   try {
     const win = await ensureMiniPanelVisible();
     popupMode = true;
     mainWindow.setSkipTaskbar(true);
-    mainWindow.hide();
     win.webContents.send('mini:status', currentProgress);
-    log('Modo popup ativado com sucesso');
+
+    await new Promise(resolve => setTimeout(resolve, 180));
+    if (!miniWindow || miniWindow.isDestroyed() || !miniWindow.isVisible()) {
+      throw new Error('Painel flutuante perdeu visibilidade.');
+    }
+
+    log('Modo popup ativado no canto superior direito');
   } catch (error) {
     popupMode = false;
     log('Falha ao ativar modo popup:', error);
@@ -748,12 +750,13 @@ async function createWindow() {
 
   mainWindow.on('resize', scheduleFit);
   mainWindow.on('move', scheduleFit);
-  mainWindow.on('minimize', event => {
-    event.preventDefault();
-    enterPopupMode().catch(error => {
-      log('Erro inesperado ao minimizar:', error);
-      restoreMainWindow();
-    });
+  mainWindow.on('minimize', () => {
+    setTimeout(() => {
+      activatePopupAfterMinimize().catch(error => {
+        log('Erro inesperado ao minimizar:', error);
+        restoreMainWindow();
+      });
+    }, 80);
   });
   mainWindow.on('restore', () => {
     if (!popupMode && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
