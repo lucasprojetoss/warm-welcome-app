@@ -309,7 +309,26 @@ async function completionSignal() {
   }, 950);
 }
 
+function recoverInterruptedReplacements(folder) {
+  try {
+    const entries = fs.readdirSync(folder, { withFileTypes: true }).filter(e => e.isFile()).map(e => e.name);
+    for (const name of entries) {
+      if (name.endsWith('.lucas-temp')) {
+        try { fs.unlinkSync(path.join(folder, name)); } catch (_) {}
+      } else if (name.endsWith('.lucas-backup')) {
+        const backup = path.join(folder, name);
+        const original = backup.slice(0, -'.lucas-backup'.length);
+        try {
+          if (!fs.existsSync(original)) fs.renameSync(backup, original);
+          else fs.unlinkSync(backup);
+        } catch (error) { log('Recuperacao de backup:', error); }
+      }
+    }
+  } catch (error) { log('Falha ao verificar temporarios:', error); }
+}
+
 function listMp3Files(folder) {
+  recoverInterruptedReplacements(folder);
   const names = fs.readdirSync(folder, { withFileTypes: true })
     .filter(entry => entry.isFile() && /\.mp3$/i.test(entry.name))
     .map(entry => entry.name)
