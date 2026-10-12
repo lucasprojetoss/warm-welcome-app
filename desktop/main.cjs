@@ -18,6 +18,7 @@ let localServer = null;
 let localBaseUrl = null;
 let selectedMusicRoot = null;
 let processingActive = false;
+let popupMode = false;
 let fitTimer = null;
 let currentProgress = {
   version: '1.2.1',
@@ -62,6 +63,10 @@ function settingsPath() {
 
 function batchStatePath() {
   return path.join(dataRoot(), 'lote-em-andamento.json');
+}
+
+function miniPositionPath() {
+  return path.join(dataRoot(), 'posicao-popup.json');
 }
 
 function safeJsonRead(file, fallback = null) {
@@ -181,8 +186,7 @@ function setProcessingProtection(active) {
     powerSaveBlocker.stop(blockerId);
   }
   blockerId = null;
-  const keepCompletedPanel = currentProgress.completed && mainWindow && mainWindow.isMinimized();
-  if (miniWindow && !miniWindow.isDestroyed() && !keepCompletedPanel) miniWindow.hide();
+  if (miniWindow && !miniWindow.isDestroyed() && !popupMode) miniWindow.hide();
   log('Protecao contra suspensao desativada');
 }
 
@@ -219,12 +223,37 @@ function scheduleFit() {
   fitTimer = setTimeout(() => fitWindowToDisplay(false), 120);
 }
 
-function positionMiniWindow() {
+function positionMiniWindow(useSaved = true) {
   if (!miniWindow || miniWindow.isDestroyed()) return;
+  const [w, h] = miniWindow.getSize();
+
+  if (useSaved) {
+    const saved = safeJsonRead(miniPositionPath(), null);
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+      const displays = screen.getAllDisplays();
+      const visible = displays.some(d => {
+        const a = d.workArea;
+        return saved.x < a.x + a.width - 40 &&
+               saved.x + w > a.x + 40 &&
+               saved.y < a.y + a.height - 30 &&
+               saved.y + h > a.y + 30;
+      });
+      if (visible) {
+        miniWindow.setPosition(Math.round(saved.x), Math.round(saved.y), false);
+        return;
+      }
+    }
+  }
+
   const display = getTargetDisplay();
   const area = display.workArea;
-  const [w, h] = miniWindow.getSize();
   miniWindow.setPosition(area.x + area.width - w - 18, area.y + area.height - h - 18, false);
+}
+
+function saveMiniPosition() {
+  if (!miniWindow || miniWindow.isDestroyed() || !miniWindow.isVisible()) return;
+  const [x, y] = miniWindow.getPosition();
+  try { safeJsonWrite(miniPositionPath(), { x, y }); } catch (error) { log('Posicao do popup:', error); }
 }
 
 async function createMiniWindow() {
@@ -239,7 +268,10 @@ async function createMiniWindow() {
     show: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    backgroundColor: '#101613',
+    transparent: true,
+    hasShadow: false,
+    movable: true,
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'mini-preload.cjs'),
       contextIsolation: true,
@@ -250,17 +282,28 @@ async function createMiniWindow() {
   });
   miniWindow.setAlwaysOnTop(true, 'floating');
   await miniWindow.loadFile(path.join(__dirname, 'mini.html'));
+  miniWindow.on('moved', saveMiniPosition);
   miniWindow.on('closed', () => { miniWindow = null; });
-  positionMiniWindow();
+  positionMiniWindow(true);
   return miniWindow;
 }
 
 async function showMiniPanel() {
-  if (!processingActive || !mainWindow || !mainWindow.isMinimized()) return;
+  if (!popupMode || !mainWindow || mainWindow.isDestroyed()) return;
   const win = await createMiniWindow();
-  positionMiniWindow();
+  positionMiniWindow(true);
   win.webContents.send('mini:status', currentProgress);
   win.showInactive();
+}
+
+function restoreMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  popupMode = false;
+  mainWindow.setSkipTaskbar(false);
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
 }
 
 function updateProgress(payload = {}) {
@@ -330,7 +373,7 @@ function recoverInterruptedReplacements(folder) {
 function listMp3Files(folder) {
   recoverInterruptedReplacements(folder);
   const names = fs.readdirSync(folder, { withFileTypes: true })
-    .filter(entry => entry.isFile() && /\.mp3$/i.test(entry.name))
+    .filter(entry => entry.isFile() && /\.mp3$/i.test(entry.name) && !/_LucasGravacoes\.mp3$/i.test(entry.name))
     .map(entry => entry.name)
     .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' }));
 
@@ -669,18 +712,19 @@ async function createWindow() {
   }, 1200);
 
   mainWindow.on('resize', scheduleFit);
-  mainWindow.on('move', () => {
-    scheduleFit();
-    positionMiniWindow();
-  });
-  mainWindow.on('minimize', () => {
-    setTimeout(() => showMiniPanel().catch(error => log('Mini painel:', error)), 80);
+  mainWindow.on('move', scheduleFit);
+  mainWindow.on('minimize', event => {
+    event.preventDefault();
+    popupMode = true;
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.hide();
+    setTimeout(() => showMiniPanel().catch(error => log('Mini painel:', error)), 40);
   });
   mainWindow.on('restore', () => {
-    if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
+    if (!popupMode && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
   });
   mainWindow.on('show', () => {
-    if (!mainWindow.isMinimized() && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
+    if (!popupMode && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
   });
 
   mainWindow.on('closed', () => {
@@ -697,17 +741,11 @@ ipcMain.on('processing:progress', (_event, payload) => {
 
 ipcMain.on('processing:complete', async (_event, payload) => {
   updateProgress({ ...(payload || {}), completed: true, percent: 100 });
-  if (mainWindow && mainWindow.isMinimized()) await showMiniPanel();
+  if (popupMode) await showMiniPanel();
   await completionSignal();
 });
 
-ipcMain.on('mini:restore', () => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-  if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
-});
+ipcMain.on('mini:restore', restoreMainWindow);
 
 ipcMain.handle('desktop:status', () => {
   const display = getTargetDisplay();
@@ -778,11 +816,7 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    if (mainWindow) restoreMainWindow();
   });
 
   app.whenReady().then(() => {
