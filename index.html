@@ -476,7 +476,8 @@ $('preparePreview').addEventListener('click',async()=>{
 });
 
 $('startBatch').addEventListener('click',async()=>{
-  const files=tracks(),jingle=activeJingle(),btn=$('startBatch');
+  let files=tracks();
+  const jingle=activeJingle(),btn=$('startBatch');
   if(!files.length){$('defaultMetadataStatus').textContent='Volte em Músicas e selecione o lote.';return}
   if(!jingle){$('defaultMetadataStatus').textContent='Volte em Músicas e escolha a vinheta.';return}
   try{
@@ -484,9 +485,30 @@ $('startBatch').addEventListener('click',async()=>{
     await saveDefaultMetadataSettings();
     replaceOriginals=$('replaceOriginals').checked;
     await persistDesktopDefaults();
+
     if(!batchOriginalTotal)batchOriginalTotal=files.length;
     if(!resumeState)resumedCompletedPaths=[];
+
+    if(isElectron()&&resumedCompletedPaths.length&&desktopTracks.length){
+      const doneSet=new Set(resumedCompletedPaths);
+      const pending=desktopTracks.filter(file=>!doneSet.has(file.sourcePath));
+      if(pending.length!==desktopTracks.length){
+        desktopTracks=pending;
+        resetLoadedTracksUi();
+        files=tracks();
+      }
+    }
+
     finalizedCount=resumedCompletedPaths.length;
+
+    if(!files.length&&batchOriginalTotal>0&&finalizedCount>=batchOriginalTotal){
+      batchCompleted=true;currentWork='Lote finalizado ✓';updateDashboard();
+      await clearBatchCheckpoint();
+      $('defaultMetadataStatus').textContent='Este lote já estava totalmente finalizado.';
+      showWizardStep(4);
+      return
+    }
+
     batchCompleted=false;currentWork='Iniciando lote';updateDashboard();
     await saveBatchCheckpoint();
     desktopProcessing(true);
