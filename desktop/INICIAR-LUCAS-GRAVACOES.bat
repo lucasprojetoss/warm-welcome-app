@@ -36,9 +36,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "node_modules\electron\dist\electron.exe" (
-  echo Instalando o motor Electron. Isso acontece apenas uma vez...
-  call npm install --no-audit --no-fund
+set "NEED_INSTALL=0"
+if not exist "node_modules\electron\dist\electron.exe" set "NEED_INSTALL=1"
+
+if "%NEED_INSTALL%"=="0" (
+  for /f "delims=" %%V in ('node -p "require('./package.json').devDependencies.electron"') do set "WANTED_ELECTRON=%%V"
+  for /f "delims=" %%V in ('node -p "require('./node_modules/electron/package.json').version"') do set "INSTALLED_ELECTRON=%%V"
+  if not "%WANTED_ELECTRON%"=="%INSTALLED_ELECTRON%" set "NEED_INSTALL=1"
+)
+
+if "%NEED_INSTALL%"=="1" (
+  echo Atualizando o motor Electron...
+  call npm install --no-audit --no-fund --prefer-offline
   if errorlevel 1 (
     echo.
     echo ERRO durante a instalacao do Electron.
