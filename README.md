@@ -23,36 +23,18 @@ npm i
 npm run dev
 ```
 
-
 ## Lucas Gravações Desktop (Electron)
 
-A versão desktop reaproveita o mesmo `index.html` do sistema e abre em uma janela Electron própria.
+A versão desktop enxuta fica na pasta `desktop` e instala somente o Electron.
 
-### Testar no Windows
+### Jeito mais fácil no Windows
 
-É necessário ter Node.js e npm instalados. Depois, dentro da pasta do projeto:
+1. Baixe o ZIP mais recente do repositório e extraia.
+2. Abra `warm-welcome-app-main\desktop`.
+3. Dê dois cliques em `INICIAR-LUCAS-GRAVACOES.bat`.
+4. Na primeira execução, ele instala apenas o Electron.
+5. Nas próximas execuções, abre direto.
 
-```sh
-npm install
-npm run electron:start
-```
+Não rode `npm install` na pasta principal para testar o Electron. A pasta principal continua sendo o projeto Lovable; a versão desktop foi isolada para evitar baixar dependências desnecessárias.
 
-O Electron abre o Lucas Gravações como programa de computador. A janela foi configurada com processamento de fundo sem throttling e ativa proteção contra suspensão enquanto um lote estiver em andamento.
-
-### Gerar instalador do Windows
-
-```sh
-npm run electron:dist
-```
-
-O instalador será gerado em `dist-electron/`.
-
-### Estrutura Electron
-
-- `electron/main.cjs` — processo principal do aplicativo.
-- `electron/preload.cjs` — ponte segura entre a interface e o processo principal.
-- `index.html` — mesma interface usada no navegador/PWA.
-- `analysis-worker.js` — análise musical em Worker.
-- `mp3-worker.js` — mixagem/codificação MP3 em Worker.
-
-Enquanto há processamento, a interface avisa o Electron para usar `powerSaveBlocker` com `prevent-app-suspension`. A janela também usa `backgroundThrottling: false`, para que minimizar não reduza os timers e Workers como acontece no navegador comum.
+A janela Electron usa `backgroundThrottling: false` e ativa `powerSaveBlocker` enquanto o lote estiver em processamento.
