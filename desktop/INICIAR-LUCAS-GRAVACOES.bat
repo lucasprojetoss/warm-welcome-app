@@ -50,7 +50,7 @@ if errorlevel 1 echo %date% %time% - ERRO ao iniciar Electron>>"%LOG%"
 exit /b
 
 :repair_shortcut
-if exist "%~dp0CRIAR-ATALHO.ps1" (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0CRIAR-ATALHO.ps1" >>"%LOG%" 2>&1
+if exist "%~dp0ATUALIZAR-ATALHO.vbs" (
+  cscript //nologo "%~dp0ATUALIZAR-ATALHO.vbs" >>"%LOG%" 2>&1
 )
 exit /b 0
