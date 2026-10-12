@@ -41,7 +41,22 @@ function createWindow() {
   });
 
   Menu.setApplicationMenu(null);
-  mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
+  const indexPath = path.join(__dirname, '..', 'index.html');
+  mainWindow.loadFile(indexPath).catch((error) => {
+    console.error('[Lucas Gravações] Falha ao carregar interface:', error);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    console.error('[Lucas Gravações] did-fail-load:', code, description, url);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Lucas Gravações] renderer encerrado:', details);
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log('[Interface]', level, message, sourceId + ':' + line);
+  });
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
