@@ -1,0 +1,14 @@
+LUCAS GRAVACOES - VERSAO DESKTOP ENXUTA
+
+Esta pasta instala apenas o Electron, sem baixar todas as bibliotecas do projeto Lovable.
+
+COMO USAR:
+1. Certifique-se de que o Node.js esta instalado.
+2. Dê dois cliques em: INICIAR-LUCAS-GRAVACOES.bat
+3. Na primeira vez ele baixa o Electron.
+4. Nas proximas vezes ele abre direto.
+
+IMPORTANTE:
+- Mantenha esta pasta dentro da pasta principal warm-welcome-app-main.
+- O arquivo index.html, analysis-worker.js e mp3-worker.js precisam continuar na pasta principal.
+- Durante o processamento, o Electron ativa protecao contra suspensao e desativa throttling da janela minimizada.
