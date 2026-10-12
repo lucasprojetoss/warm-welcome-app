@@ -123,8 +123,8 @@ function fitWindowToDisplay(forceBounds = false) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const display = getTargetDisplay();
   const area = display.workArea;
-  const width = Math.max(900, Math.floor(area.width * 0.96));
-  const height = Math.max(620, Math.floor(area.height * 0.94));
+  const width = Math.max(640, Math.floor(area.width * 0.96));
+  const height = Math.max(480, Math.floor(area.height * 0.94));
 
   if (forceBounds) {
     const x = area.x + Math.floor((area.width - width) / 2);
@@ -151,16 +151,16 @@ async function createWindow() {
 
   const display = screen.getPrimaryDisplay();
   const initialArea = display.workArea;
-  const initialWidth = Math.max(900, Math.floor(initialArea.width * 0.96));
-  const initialHeight = Math.max(620, Math.floor(initialArea.height * 0.94));
+  const initialWidth = Math.max(640, Math.floor(initialArea.width * 0.96));
+  const initialHeight = Math.max(480, Math.floor(initialArea.height * 0.94));
 
   mainWindow = new BrowserWindow({
     width: initialWidth,
     height: initialHeight,
     x: initialArea.x + Math.floor((initialArea.width - initialWidth) / 2),
     y: initialArea.y + Math.floor((initialArea.height - initialHeight) / 2),
-    minWidth: 760,
-    minHeight: 520,
+    minWidth: 640,
+    minHeight: 480,
     show: false,
     backgroundColor: '#111514',
     title: 'Lucas Gravações',
@@ -255,6 +255,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     log('Electron iniciado. Hardware acceleration: desativada');
+    screen.on('display-metrics-changed', scheduleFit);
     createWindow().catch(error => log('createWindow:', error));
   });
 }
