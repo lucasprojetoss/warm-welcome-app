@@ -311,7 +311,36 @@ async function runAutoFinalizer(token,jingle,files){
   }
 }
 function clearInsertionPreview(){const p=$('previewSongPlayer');p.pause();if(insertionPreviewUrl)URL.revokeObjectURL(insertionPreviewUrl);insertionPreviewUrl=null;insertionMixUrl=null;insertionPoint=null;insertionDuration=0;p.removeAttribute('src');p.load();$('entryMarker').style.left='0%'}
-function loadPreviewSong(index){clearInsertionPreview();const idx=Number(index),file=tracks()[idx];if(!file){$('entryPointResult').textContent='Selecione uma música para conferir.';return}if(!previewAuthorized){$('entryPointResult').textContent='Prévia ainda não iniciada. Volte em Músicas e clique em “OK — Preparar prévia”.';return}const prep=preparedPreviews[idx],state=previewSongStates[idx];if(!prep){$('entryPointResult').textContent=state&&state.status==='working'?'Esta música está sendo preparada agora…':'Esta música ainda está na fila automática de prévias.';return}const player=$('previewSongPlayer');insertionMixUrl=prep.url;insertionPoint=prep.point;insertionDuration=prep.duration;player.src=prep.url;player.load();$('entryMarker').style.left=Math.max(0,Math.min(100,prep.point/prep.duration*100))+'%';const confidence=prep.analysis?' • confiança '+prep.analysis.label+' ('+prep.analysis.confidence+'%)':' • modo manual';$('entryPointResult').textContent='PRÉVIA PRONTA em '+prep.elapsed.toFixed(1)+' s • na música, a vinheta entra em '+formatClock(prep.point)+' ('+prep.point.toFixed(1)+' s)'+confidence+' • neste player ela entra em '+prep.localT.toFixed(1)+' s e termina em '+prep.endInPreview.toFixed(1)+' s. Aperte Play para conferir.'}
+let previewListenToken=0;
+async function loadPreviewSong(index){
+  const token=++previewListenToken;
+  clearInsertionPreview();
+  const idx=Number(index),file=tracks()[idx];
+  if(!file){$('entryPointResult').textContent='Selecione uma música para conferir.';return}
+  if(!previewAuthorized){$('entryPointResult').textContent='O lote ainda não foi iniciado.';return}
+  const prep=preparedPreviews[idx],state=previewSongStates[idx];
+  if(!prep){$('entryPointResult').textContent=state&&state.status==='working'?'Esta música está sendo analisada agora…':'Esta música ainda está na fila.';return}
+
+  $('entryPointResult').textContent='Montando somente esta prévia para você ouvir…';
+  let ctx;
+  try{
+    ctx=new AudioContext();
+    const jfile=activeJingle();
+    const [music,jingle]=await Promise.all([decode(file,ctx),decode(jfile,ctx)]);
+    if(token!==previewListenToken)return;
+    const clip=await renderInsertionPreviewClip(music,jingle,prep.point,currentDuckDb(),AUTO_JINGLE_GAIN);
+    if(token!==previewListenToken)return;
+    insertionPreviewUrl=URL.createObjectURL(audioBufferToWavBlob(clip.buffer));
+    insertionPoint=prep.point;insertionDuration=prep.duration;
+    const player=$('previewSongPlayer');player.src=insertionPreviewUrl;player.load();
+    $('entryMarker').style.left=Math.max(0,Math.min(100,prep.point/prep.duration*100))+'%';
+    const confidence=prep.analysis?' • confiança '+prep.analysis.label+' ('+prep.analysis.confidence+'%)':' • modo manual';
+    const endInPreview=Math.min(clip.buffer.duration,clip.localT+jingle.duration);
+    $('entryPointResult').textContent='PRÉVIA PRONTA • na música, a vinheta entra em '+formatClock(prep.point)+' ('+prep.point.toFixed(1)+' s)'+confidence+' • neste player ela entra em '+clip.localT.toFixed(1)+' s e termina em '+endInPreview.toFixed(1)+' s. Aperte Play para conferir.'
+  }catch(e){
+    if(token===previewListenToken)$('entryPointResult').textContent='Não foi possível montar a prévia: '+e.message
+  }finally{if(ctx)await ctx.close()}
+}
 $('previewSongSelect').addEventListener('change',e=>{loadPreviewSong(e.target.value);renderPreviewQueue()});
 function audioBufferToWavBlob(buffer){const channels=Math.min(2,buffer.numberOfChannels),length=buffer.length,bytes=44+length*channels*2,ab=new ArrayBuffer(bytes),v=new DataView(ab);const str=(o,x)=>{for(let i=0;i<x.length;i++)v.setUint8(o+i,x.charCodeAt(i))};str(0,'RIFF');v.setUint32(4,36+length*channels*2,true);str(8,'WAVE');str(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,channels,true);v.setUint32(24,buffer.sampleRate,true);v.setUint32(28,buffer.sampleRate*channels*2,true);v.setUint16(32,channels*2,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,length*channels*2,true);let o=44;for(let i=0;i<length;i++){for(let c=0;c<channels;c++){const x=Math.max(-1,Math.min(1,buffer.getChannelData(c)[i]||0));v.setInt16(o,x<0?Math.round(x*32768):Math.round(x*32767),true);o+=2}}return new Blob([ab],{type:'audio/wav'})}
 async function renderInsertionPreviewClip(music,jingle,position,duckDb,gain){const before=3,after=4,start=Math.max(0,position-before),end=Math.min(music.duration,position+jingle.duration+after),dur=Math.max(.2,end-start),rate=Math.min(32000,music.sampleRate),ctx=new OfflineAudioContext(2,Math.ceil(dur*rate),rate),localT=position-start;const song=ctx.createBufferSource(),duck=ctx.createGain();song.buffer=music;song.connect(duck).connect(ctx.destination);duck.gain.setValueAtTime(1,0);duck.gain.setValueAtTime(1,Math.max(0,localT-.5));duck.gain.linearRampToValueAtTime(Math.pow(10,duckDb/20),localT);duck.gain.setValueAtTime(Math.pow(10,duckDb/20),Math.min(dur,localT+jingle.duration));duck.gain.linearRampToValueAtTime(1,Math.min(dur,localT+jingle.duration+1));song.start(0,start,dur);const voice=ctx.createBufferSource(),vg=ctx.createGain();voice.buffer=jingle;vg.gain.value=gain;voice.connect(vg).connect(ctx.destination);voice.start(localT);return {buffer:await ctx.startRendering(),localT,start}}
@@ -349,14 +378,12 @@ async function prepareAllPreviews(){
         const point=await chooseInsertionPoint(music,jingle);
         const analysis=insertionMode==='auto'&&lastAutoAnalysis?{...lastAutoAnalysis}:null;
         if(!Number.isFinite(point)||point<0||point+jingle.duration>music.duration)throw Error('Tempo de inserção inválido para esta música');
-        setPreviewSongState(i,'working',70,'Montando');
-        const clip=await renderInsertionPreviewClip(music,jingle,point,currentDuckDb(),AUTO_JINGLE_GAIN);
+        setPreviewSongState(i,'working',75,'Ponto encontrado');
         if(token!==previewBatchToken||!previewAuthorized)break;
-        const url=URL.createObjectURL(audioBufferToWavBlob(clip.buffer)),elapsed=(performance.now()-started)/1000;
-        preparedPreviews[i]={file,url,point,duration:music.duration,localT:clip.localT,endInPreview:Math.min(clip.buffer.duration,clip.localT+jingle.duration),analysis,elapsed};
-        setPreviewSongState(i,'ready',100,'Prévia pronta ✓');
-        showMiniToast('preview','Prévia pronta',file.name);
-        if($('previewSongSelect').value===String(i))loadPreviewSong(String(i));
+        const elapsed=(performance.now()-started)/1000;
+        preparedPreviews[i]={file,point,duration:music.duration,analysis,elapsed};
+        setPreviewSongState(i,'ready',100,'Ponto pronto ✓');
+        showMiniToast('preview','Ponto da vinheta pronto',file.name);
         await waitFinalizeCapacity(token,1);
         if(token!==previewBatchToken||!previewAuthorized)break;
         enqueueAutoFinalize({i,file,music,point});
@@ -370,8 +397,8 @@ async function prepareAllPreviews(){
     if(token===previewBatchToken&&previewAuthorized){
       previewProductionDone=true;signalPipeline();
       const ready=preparedPreviews.filter(Boolean).length;
-      $('previewBatchStatus').textContent='Lote de prévias concluído: '+ready+'/'+files.length+' prontas. A finalização continua automaticamente.';
-      if(ready)showMiniToast('preview','Prévias concluídas',ready+' de '+files.length+' músicas prontas para conferir.');
+      $('previewBatchStatus').textContent='Análise do lote concluída: '+ready+'/'+files.length+' prontas. A finalização continua automaticamente.';
+      if(ready)showMiniToast('preview','Análise concluída',ready+' de '+files.length+' músicas analisadas.');
     }
   }catch(e){
     if(token===previewBatchToken){previewProductionDone=true;signalPipeline();$('previewBatchStatus').textContent='Erro ao preparar o lote: '+e.message}
