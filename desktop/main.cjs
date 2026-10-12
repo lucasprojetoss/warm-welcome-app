@@ -380,6 +380,29 @@ function replaceMusicFileSafely(filePath, bytes) {
   }
 }
 
+function saveMusicCopy(filePath, bytes) {
+  if (!selectedMusicRoot || !isInside(selectedMusicRoot, filePath)) {
+    throw new Error('Destino fora da pasta de músicas selecionada.');
+  }
+  const data = Buffer.from(bytes);
+  if (data.length < 1024) throw new Error('MP3 final inválido ou muito pequeno.');
+  const ext = path.extname(filePath) || '.mp3';
+  const base = filePath.slice(0, -ext.length);
+  const dest = base + '_LucasGravacoes.mp3';
+  const temp = dest + '.lucas-temp';
+  try {
+    if (fs.existsSync(temp)) fs.unlinkSync(temp);
+    fs.writeFileSync(temp, data);
+    const fd = fs.openSync(temp, 'r');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    if (fs.existsSync(dest)) fs.unlinkSync(dest);
+    fs.renameSync(temp, dest);
+    return { ok: true, path: dest, size: data.length };
+  } finally {
+    try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+  }
+}
+
 function attachmentFromFile(filePath, type) {
   if (!filePath || !fs.existsSync(filePath)) return null;
   const data = fs.readFileSync(filePath);
@@ -677,6 +700,9 @@ ipcMain.handle('music:read', (_event, filePath, start, end) => {
 
 ipcMain.handle('music:replace', (_event, filePath, bytes) => {
   return replaceMusicFileSafely(String(filePath), bytes);
+});
+ipcMain.handle('music:save-copy', (_event, filePath, bytes) => {
+  return saveMusicCopy(String(filePath), bytes);
 });
 
 ipcMain.handle('defaults:load', () => loadDefaults());
