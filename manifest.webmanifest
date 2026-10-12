@@ -1,7 +1,7 @@
 {
   "name": "Lucas Gravações",
   "short_name": "Lucas Gravações",
-  "description": "Auto Vinhetas, equalização e processamento de áudio em lote.",
+  "description": "Auto Vinhetas e processamento de áudio em lote.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
