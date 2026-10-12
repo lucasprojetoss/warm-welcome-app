@@ -71,6 +71,7 @@ function safeJsonRead(file, fallback = null) {
 function safeJsonWrite(file, value) {
   const tmp = file + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
+  if (fs.existsSync(file)) fs.unlinkSync(file);
   fs.renameSync(tmp, file);
 }
 
@@ -180,7 +181,8 @@ function setProcessingProtection(active) {
     powerSaveBlocker.stop(blockerId);
   }
   blockerId = null;
-  if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
+  const keepCompletedPanel = currentProgress.completed && mainWindow && mainWindow.isMinimized();
+  if (miniWindow && !miniWindow.isDestroyed() && !keepCompletedPanel) miniWindow.hide();
   log('Protecao contra suspensao desativada');
 }
 
