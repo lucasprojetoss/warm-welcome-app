@@ -16,7 +16,7 @@
 </head>
 <body>
 <div id="panel" title="Clique para abrir o Lucas Gravações">
-  <div class="top"><div class="brand">🎙️ Lucas Gravações</div><div id="version" class="version">v1.2.0</div></div>
+  <div class="top"><div class="brand">🎙️ Lucas Gravações</div><div id="version" class="version">v1.2.1</div></div>
   <div class="grid">
     <div class="card"><small>Lote</small><strong id="total">0</strong></div>
     <div class="card"><small>Prévia</small><strong id="preview">0</strong></div>
@@ -34,7 +34,7 @@ window.miniDesktop.onStatus(s=>{
   $('finalized').textContent=s.finalized||0;
   $('percent').textContent=(s.percent||0)+'%';
   $('current').textContent=s.current||'Processando lote';
-  $('version').textContent='v'+(s.version||'1.2.0');
+  $('version').textContent='v'+(s.version||'1.2.1');
   $('state').textContent=s.completed?'LOTE FINALIZADO ✓':'SEGUNDO PLANO ATIVO';
   $('panel').classList.toggle('done',!!s.completed);
 });
