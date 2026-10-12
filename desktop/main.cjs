@@ -12,16 +12,14 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 let mainWindow = null;
-let miniWindow = null;
 let blockerId = null;
 let localServer = null;
 let localBaseUrl = null;
 let selectedMusicRoot = null;
 let processingActive = false;
-let popupMode = false;
 let fitTimer = null;
 let currentProgress = {
-  version: '1.2.6',
+  version: '1.2.7',
   total: 0,
   previewReady: 0,
   finalized: 0,
@@ -63,10 +61,6 @@ function settingsPath() {
 
 function batchStatePath() {
   return path.join(dataRoot(), 'lote-em-andamento.json');
-}
-
-function miniPositionPath() {
-  return path.join(dataRoot(), 'posicao-popup-topo.json');
 }
 
 function safeJsonRead(file, fallback = null) {
@@ -186,7 +180,6 @@ function setProcessingProtection(active) {
     powerSaveBlocker.stop(blockerId);
   }
   blockerId = null;
-  if (miniWindow && !miniWindow.isDestroyed() && !popupMode) miniWindow.hide();
   log('Protecao contra suspensao desativada');
 }
 
@@ -221,126 +214,6 @@ function fitWindowToDisplay(forceBounds = false) {
 function scheduleFit() {
   clearTimeout(fitTimer);
   fitTimer = setTimeout(() => fitWindowToDisplay(false), 120);
-}
-
-function positionMiniWindow(useSaved = true) {
-  if (!miniWindow || miniWindow.isDestroyed()) return;
-  const [w, h] = miniWindow.getSize();
-
-  if (useSaved) {
-    const saved = safeJsonRead(miniPositionPath(), null);
-    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
-      const displays = screen.getAllDisplays();
-      const visible = displays.some(d => {
-        const a = d.workArea;
-        return saved.x < a.x + a.width - 40 &&
-               saved.x + w > a.x + 40 &&
-               saved.y < a.y + a.height - 30 &&
-               saved.y + h > a.y + 30;
-      });
-      if (visible) {
-        miniWindow.setPosition(Math.round(saved.x), Math.round(saved.y), false);
-        return;
-      }
-    }
-  }
-
-  const display = getTargetDisplay();
-  const area = display.workArea;
-  miniWindow.setPosition(area.x + area.width - w - 18, area.y + 18, false);
-}
-
-function saveMiniPosition() {
-  if (!miniWindow || miniWindow.isDestroyed() || !miniWindow.isVisible()) return;
-  const [x, y] = miniWindow.getPosition();
-  try { safeJsonWrite(miniPositionPath(), { x, y }); } catch (error) { log('Posicao do popup:', error); }
-}
-
-async function createMiniWindow() {
-  if (miniWindow && !miniWindow.isDestroyed()) return miniWindow;
-  miniWindow = new BrowserWindow({
-    width: 340,
-    height: 188,
-    frame: false,
-    resizable: false,
-    maximizable: false,
-    minimizable: false,
-    show: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    transparent: false,
-    opacity: 0.94,
-    hasShadow: true,
-    movable: true,
-    backgroundColor: '#101613',
-    webPreferences: {
-      preload: path.join(__dirname, 'mini-preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      backgroundThrottling: false
-    }
-  });
-  miniWindow.setAlwaysOnTop(true, 'floating');
-  await miniWindow.loadFile(path.join(__dirname, 'mini.html'));
-  miniWindow.on('moved', saveMiniPosition);
-  miniWindow.on('closed', () => { miniWindow = null; });
-  positionMiniWindow(true);
-  return miniWindow;
-}
-
-async function ensureMiniPanelVisible() {
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Janela principal indisponível.');
-  const win = await createMiniWindow();
-  positionMiniWindow(true);
-  win.webContents.send('mini:status', currentProgress);
-  win.show();
-  win.moveTop();
-  await new Promise(resolve => setTimeout(resolve, 140));
-  if (!win.isVisible()) throw new Error('O Windows não exibiu o painel flutuante.');
-  return win;
-}
-
-async function showMiniPanel() {
-  if (!popupMode) return;
-  await ensureMiniPanelVisible();
-}
-
-async function activatePopupAfterMinimize() {
-  if (!mainWindow || mainWindow.isDestroyed() || popupMode) return;
-  try {
-    const win = await ensureMiniPanelVisible();
-    popupMode = true;
-    mainWindow.setSkipTaskbar(true);
-    win.webContents.send('mini:status', currentProgress);
-
-    await new Promise(resolve => setTimeout(resolve, 180));
-    if (!miniWindow || miniWindow.isDestroyed() || !miniWindow.isVisible()) {
-      throw new Error('Painel flutuante perdeu visibilidade.');
-    }
-
-    log('Modo popup ativado no canto superior direito');
-  } catch (error) {
-    popupMode = false;
-    log('Falha ao ativar modo popup:', error);
-    try {
-      mainWindow.setSkipTaskbar(false);
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    } catch (_) {}
-  }
-}
-
-function restoreMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  popupMode = false;
-  mainWindow.setSkipTaskbar(false);
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-  if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
-  log('Janela principal restaurada a partir do popup');
 }
 
 function updateProgress(payload = {}) {
@@ -672,7 +545,6 @@ function getDiagnostics() {
     } : null,
     zoomFactor: mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getZoomFactor() : 1,
     processingProtected: blockerId !== null && powerSaveBlocker.isStarted(blockerId),
-    miniPanel: Boolean(miniWindow && !miniWindow.isDestroyed() && miniWindow.isVisible()),
     selectedFolder: selectedMusicRoot,
     dataFolder: dataRoot(),
     systemAudioDuck: Boolean(loudness && process.platform === 'win32'),
@@ -750,20 +622,6 @@ async function createWindow() {
 
   mainWindow.on('resize', scheduleFit);
   mainWindow.on('move', scheduleFit);
-  mainWindow.on('minimize', () => {
-    setTimeout(() => {
-      activatePopupAfterMinimize().catch(error => {
-        log('Erro inesperado ao minimizar:', error);
-        restoreMainWindow();
-      });
-    }, 80);
-  });
-  mainWindow.on('restore', () => {
-    if (!popupMode && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
-  });
-  mainWindow.on('show', () => {
-    if (!popupMode && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
-  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -779,11 +637,8 @@ ipcMain.on('processing:progress', (_event, payload) => {
 
 ipcMain.on('processing:complete', async (_event, payload) => {
   updateProgress({ ...(payload || {}), completed: true, percent: 100 });
-  if (popupMode) await showMiniPanel();
   await completionSignal();
 });
-
-ipcMain.on('mini:restore', restoreMainWindow);
 
 ipcMain.handle('desktop:status', () => {
   const display = getTargetDisplay();
@@ -854,7 +709,12 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) restoreMainWindow();
+    if (mainWindow) {
+      mainWindow.setSkipTaskbar(false);
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 
   app.whenReady().then(() => {
