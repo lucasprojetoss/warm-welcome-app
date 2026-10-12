@@ -28,17 +28,11 @@ if errorlevel 1 (
 
 set "NEED_INSTALL=0"
 if not exist "node_modules\electron\dist\electron.exe" set "NEED_INSTALL=1"
-if not exist "node_modules\loudness\package.json" set "NEED_INSTALL=1"
 
 if "%NEED_INSTALL%"=="0" (
   for /f "delims=" %%V in ('node -p "require('./package.json').devDependencies.electron"') do set "WANTED_ELECTRON=%%V"
   for /f "delims=" %%V in ('node -p "require('./node_modules/electron/package.json').version"') do set "INSTALLED_ELECTRON=%%V"
   if not "%WANTED_ELECTRON%"=="%INSTALLED_ELECTRON%" set "NEED_INSTALL=1"
-)
-
-if "%NEED_INSTALL%"=="0" (
-  call npm ls --depth=0 --silent >nul 2>nul
-  if errorlevel 1 set "NEED_INSTALL=1"
 )
 
 if "%NEED_INSTALL%"=="1" (
