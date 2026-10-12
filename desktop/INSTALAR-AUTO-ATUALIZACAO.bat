@@ -64,14 +64,14 @@ if exist "%TARGET%\.git" (
 
 echo.
 echo Criando atalho na Area de Trabalho...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$W=New-Object -ComObject WScript.Shell; $S=$W.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Lucas Gravacoes.lnk'); $S.TargetPath='%TARGET%\desktop\INICIAR-LUCAS-GRAVACOES.bat'; $S.WorkingDirectory='%TARGET%\desktop'; $S.IconLocation='%SystemRoot%\System32\shell32.dll,137'; $S.Save()" >nul 2>nul
+cscript //nologo "%TARGET%\desktop\ATUALIZAR-ATALHO.vbs"
 
 echo.
 echo Configuracao concluida.
 echo A partir de agora use o atalho "Lucas Gravacoes".
 echo Ele verifica atualizacoes antes de abrir.
 echo.
-start "" "%TARGET%\desktop\INICIAR-LUCAS-GRAVACOES.bat"
+start "" wscript.exe "%TARGET%\desktop\ABRIR-LUCAS-GRAVACOES.vbs"
 exit /b 0
 
 :giterror
