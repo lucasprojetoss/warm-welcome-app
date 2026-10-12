@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-set "LOG=%~dp0launcher.log"
+set "LOG=%TEMP%\LucasGravacoes-launcher-%RANDOM%-%RANDOM%.log"
 
 echo.>>"%LOG%"
 echo ==========================================>>"%LOG%"
@@ -45,7 +45,7 @@ if "%NEED_INSTALL%"=="1" (
 )
 
 echo %date% %time% - Abrindo Electron>>"%LOG%"
-call npm start >>"%LOG%" 2>&1
+call npm start
 if errorlevel 1 echo %date% %time% - ERRO ao iniciar Electron>>"%LOG%"
 exit /b
 
