@@ -268,10 +268,11 @@ async function createMiniWindow() {
     show: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    transparent: true,
-    hasShadow: false,
+    transparent: false,
+    opacity: 0.94,
+    hasShadow: true,
     movable: true,
-    backgroundColor: '#00000000',
+    backgroundColor: '#101613',
     webPreferences: {
       preload: path.join(__dirname, 'mini-preload.cjs'),
       contextIsolation: true,
@@ -288,12 +289,45 @@ async function createMiniWindow() {
   return miniWindow;
 }
 
-async function showMiniPanel() {
-  if (!popupMode || !mainWindow || mainWindow.isDestroyed()) return;
+async function ensureMiniPanelVisible() {
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Janela principal indisponível.');
   const win = await createMiniWindow();
   positionMiniWindow(true);
   win.webContents.send('mini:status', currentProgress);
   win.showInactive();
+  await new Promise(resolve => setTimeout(resolve, 80));
+  if (!win.isVisible()) {
+    win.show();
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  if (!win.isVisible()) throw new Error('O Windows não exibiu o painel flutuante.');
+  return win;
+}
+
+async function showMiniPanel() {
+  if (!popupMode) return;
+  await ensureMiniPanelVisible();
+}
+
+async function enterPopupMode() {
+  if (!mainWindow || mainWindow.isDestroyed() || popupMode) return;
+  try {
+    const win = await ensureMiniPanelVisible();
+    popupMode = true;
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.hide();
+    win.webContents.send('mini:status', currentProgress);
+    log('Modo popup ativado com sucesso');
+  } catch (error) {
+    popupMode = false;
+    log('Falha ao ativar modo popup:', error);
+    try {
+      mainWindow.setSkipTaskbar(false);
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    } catch (_) {}
+  }
 }
 
 function restoreMainWindow() {
@@ -304,6 +338,7 @@ function restoreMainWindow() {
   mainWindow.show();
   mainWindow.focus();
   if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
+  log('Janela principal restaurada a partir do popup');
 }
 
 function updateProgress(payload = {}) {
@@ -715,10 +750,10 @@ async function createWindow() {
   mainWindow.on('move', scheduleFit);
   mainWindow.on('minimize', event => {
     event.preventDefault();
-    popupMode = true;
-    mainWindow.setSkipTaskbar(true);
-    mainWindow.hide();
-    setTimeout(() => showMiniPanel().catch(error => log('Mini painel:', error)), 40);
+    enterPopupMode().catch(error => {
+      log('Erro inesperado ao minimizar:', error);
+      restoreMainWindow();
+    });
   });
   mainWindow.on('restore', () => {
     if (!popupMode && miniWindow && !miniWindow.isDestroyed()) miniWindow.hide();
