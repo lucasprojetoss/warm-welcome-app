@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('lucasDesktop', {
     return ipcRenderer.invoke('music:replace', filePath, bytes);
   },
 
+  saveMusicCopy(filePath, bytes) {
+    return ipcRenderer.invoke('music:save-copy', filePath, bytes);
+  },
+
   loadDefaults() {
     return ipcRenderer.invoke('defaults:load');
   },
