@@ -359,6 +359,26 @@ function readMusicFile(filePath, start, end) {
   }
 }
 
+function sleepSync(ms) {
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(waitBuffer, 0, 0, ms);
+}
+
+function retryFileOperation(operation, label, attempts = 6) {
+  let lastError = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return operation();
+    } catch (error) {
+      lastError = error;
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error && error.code)) throw error;
+      log(label + ' tentativa ' + (i + 1) + '/' + attempts + ':', error.code);
+      sleepSync(80 + i * 60);
+    }
+  }
+  throw lastError;
+}
+
 function replaceMusicFileSafely(filePath, bytes) {
   if (!selectedMusicRoot || !isInside(selectedMusicRoot, filePath)) {
     throw new Error('Destino fora da pasta de músicas selecionada.');
@@ -378,18 +398,25 @@ function replaceMusicFileSafely(filePath, bytes) {
     if (fs.existsSync(backup)) fs.unlinkSync(backup);
 
     fs.writeFileSync(temp, data);
-    const fd = fs.openSync(temp, 'r');
-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    const written = fs.statSync(temp);
+    if (written.size !== data.length) throw new Error('Falha ao confirmar o MP3 temporário.');
 
     if (!fs.existsSync(filePath)) throw new Error('Arquivo original não foi encontrado.');
-    fs.renameSync(filePath, backup);
+    retryFileOperation(() => fs.renameSync(filePath, backup), 'Backup do original');
 
     try {
-      fs.renameSync(temp, filePath);
-      fs.unlinkSync(backup);
+      retryFileOperation(() => fs.renameSync(temp, filePath), 'Substituição pelo MP3 final');
     } catch (error) {
-      if (!fs.existsSync(filePath) && fs.existsSync(backup)) fs.renameSync(backup, filePath);
+      if (!fs.existsSync(filePath) && fs.existsSync(backup)) {
+        try { retryFileOperation(() => fs.renameSync(backup, filePath), 'Restauração do original'); } catch (_) {}
+      }
       throw error;
+    }
+
+    try {
+      if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza do backup');
+    } catch (error) {
+      log('Backup temporário será limpo depois:', error.code || error.message);
     }
 
     return { ok: true, path: filePath, size: data.length };
@@ -414,10 +441,10 @@ function saveMusicCopy(filePath, bytes) {
   try {
     if (fs.existsSync(temp)) fs.unlinkSync(temp);
     fs.writeFileSync(temp, data);
-    const fd = fs.openSync(temp, 'r');
-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    if (fs.existsSync(dest)) fs.unlinkSync(dest);
-    fs.renameSync(temp, dest);
+    const written = fs.statSync(temp);
+    if (written.size !== data.length) throw new Error('Falha ao confirmar o MP3 temporário.');
+    if (fs.existsSync(dest)) retryFileOperation(() => fs.unlinkSync(dest), 'Remoção da cópia anterior');
+    retryFileOperation(() => fs.renameSync(temp, dest), 'Gravação da cópia final');
     return { ok: true, path: dest, size: data.length };
   } finally {
     try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
