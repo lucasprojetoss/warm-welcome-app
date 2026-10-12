@@ -401,13 +401,38 @@ function saveMusicCopy(filePath, bytes) {
   }
 }
 
-function attachmentFromFile(filePath, type) {
+function incomingFileBuffer(item) {
+  if (!item) return null;
+  if (typeof item.base64 === 'string' && item.base64) return Buffer.from(item.base64, 'base64');
+  if (item.bytes) return Buffer.from(item.bytes);
+  return null;
+}
+
+function discoverDefaultJingle() {
+  const root = dataRoot();
+  try {
+    const name = fs.readdirSync(root).find(file => /^vinheta-padrao\.(mp3|wav|m4a|aac|ogg)$/i.test(file));
+    if (!name) return null;
+    const filePath = path.join(root, name);
+    const st = fs.statSync(filePath);
+    if (!st.isFile() || st.size < 128) return null;
+    const ext = path.extname(name).toLowerCase();
+    const type = ext === '.wav' ? 'audio/wav' : ext === '.m4a' ? 'audio/mp4' : ext === '.aac' ? 'audio/aac' : ext === '.ogg' ? 'audio/ogg' : 'audio/mpeg';
+    return { path: filePath, name, type, size: st.size, updatedAt: st.mtimeMs };
+  } catch (_) {
+    return null;
+  }
+}
+
+function attachmentFromFile(filePath, type, preferredName) {
   if (!filePath || !fs.existsSync(filePath)) return null;
   const data = fs.readFileSync(filePath);
+  if (!data.length) return null;
   return {
-    name: path.basename(filePath),
+    name: preferredName || path.basename(filePath),
     type,
-    bytes: bufferToArrayBuffer(data)
+    size: data.length,
+    base64: data.toString('base64')
   };
 }
 
@@ -431,23 +456,51 @@ function saveDefaults(payload = {}) {
   };
 
   if (payload.removeJingle) {
-    if (next.jingle?.path) { try { fs.unlinkSync(next.jingle.path); } catch (_) {} }
+    const candidates = fs.readdirSync(root).filter(name => /^vinheta-padrao\./i.test(name));
+    for (const name of candidates) { try { fs.unlinkSync(path.join(root, name)); } catch (_) {} }
     next.jingle = null;
-  } else if (payload.jingle?.bytes) {
-    const ext = path.extname(payload.jingle.name || '') || '.mp3';
-    const dest = path.join(root, 'vinheta-padrao' + ext.toLowerCase());
-    fs.writeFileSync(dest, Buffer.from(payload.jingle.bytes));
-    next.jingle = { path: dest, name: payload.jingle.name || path.basename(dest), type: payload.jingle.type || 'audio/mpeg' };
+  } else if (payload.jingle) {
+    const data = incomingFileBuffer(payload.jingle);
+    if (data && data.length) {
+      const ext = (path.extname(payload.jingle.name || '') || '.mp3').toLowerCase();
+      const dest = path.join(root, 'vinheta-padrao' + ext);
+      const temp = dest + '.tmp';
+
+      for (const name of fs.readdirSync(root).filter(name => /^vinheta-padrao\./i.test(name) && path.join(root, name) !== dest)) {
+        try { fs.unlinkSync(path.join(root, name)); } catch (_) {}
+      }
+
+      fs.writeFileSync(temp, data);
+      const written = fs.statSync(temp);
+      if (written.size !== data.length || written.size < 128) {
+        try { fs.unlinkSync(temp); } catch (_) {}
+        throw new Error('A vinheta padrão não foi gravada corretamente no disco.');
+      }
+      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+      fs.renameSync(temp, dest);
+
+      const finalStat = fs.statSync(dest);
+      next.jingle = {
+        path: dest,
+        name: payload.jingle.name || path.basename(dest),
+        type: payload.jingle.type || 'audio/mpeg',
+        size: finalStat.size,
+        updatedAt: Date.now()
+      };
+    }
   }
 
   if (payload.removeCover) {
     if (next.cover?.path) { try { fs.unlinkSync(next.cover.path); } catch (_) {} }
     next.cover = null;
-  } else if (payload.cover?.bytes) {
-    const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
-    const dest = path.join(root, 'capa-padrao' + ext);
-    fs.writeFileSync(dest, Buffer.from(payload.cover.bytes));
-    next.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg') };
+  } else if (payload.cover) {
+    const data = incomingFileBuffer(payload.cover);
+    if (data && data.length) {
+      const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
+      const dest = path.join(root, 'capa-padrao' + ext);
+      fs.writeFileSync(dest, data);
+      next.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg') };
+    }
   }
 
   safeJsonWrite(settingsPath(), next);
@@ -456,10 +509,21 @@ function saveDefaults(payload = {}) {
 
 function loadDefaults() {
   const config = safeJsonRead(settingsPath(), {}) || {};
+  let jingle = config.jingle || null;
+
+  if (!jingle || !jingle.path || !fs.existsSync(jingle.path)) {
+    jingle = discoverDefaultJingle();
+    if (jingle) {
+      config.jingle = jingle;
+      try { safeJsonWrite(settingsPath(), config); } catch (_) {}
+    }
+  }
+
   return {
     ...config,
-    jingleData: config.jingle ? attachmentFromFile(config.jingle.path, config.jingle.type || 'audio/mpeg') : null,
-    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg') : null
+    jingle,
+    jingleData: jingle ? attachmentFromFile(jingle.path, jingle.type || 'audio/mpeg', jingle.name) : null,
+    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg', config.cover.name) : null
   };
 }
 
@@ -483,18 +547,24 @@ function saveProfile(payload = {}) {
     cover: null
   };
 
-  if (payload.jingle?.bytes) {
-    const ext = path.extname(payload.jingle.name || '') || '.mp3';
-    const dest = path.join(dir, 'vinheta' + ext.toLowerCase());
-    fs.writeFileSync(dest, Buffer.from(payload.jingle.bytes));
-    config.jingle = { path: dest, name: payload.jingle.name || path.basename(dest), type: payload.jingle.type || 'audio/mpeg' };
+  if (payload.jingle) {
+    const data = incomingFileBuffer(payload.jingle);
+    if (data && data.length) {
+      const ext = path.extname(payload.jingle.name || '') || '.mp3';
+      const dest = path.join(dir, 'vinheta' + ext.toLowerCase());
+      fs.writeFileSync(dest, data);
+      config.jingle = { path: dest, name: payload.jingle.name || path.basename(dest), type: payload.jingle.type || 'audio/mpeg' };
+    }
   }
 
-  if (payload.cover?.bytes) {
-    const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
-    const dest = path.join(dir, 'capa' + ext);
-    fs.writeFileSync(dest, Buffer.from(payload.cover.bytes));
-    config.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || 'image/jpeg' };
+  if (payload.cover) {
+    const data = incomingFileBuffer(payload.cover);
+    if (data && data.length) {
+      const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
+      const dest = path.join(dir, 'capa' + ext);
+      fs.writeFileSync(dest, data);
+      config.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || 'image/jpeg' };
+    }
   }
 
   safeJsonWrite(path.join(dir, 'perfil.json'), config);
@@ -517,8 +587,8 @@ function loadProfile(id) {
   if (!config) throw new Error('Perfil não encontrado.');
   return {
     ...config,
-    jingleData: config.jingle ? attachmentFromFile(config.jingle.path, config.jingle.type || 'audio/mpeg') : null,
-    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg') : null
+    jingleData: config.jingle ? attachmentFromFile(config.jingle.path, config.jingle.type || 'audio/mpeg', config.jingle.name) : null,
+    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg', config.cover.name) : null
   };
 }
 
