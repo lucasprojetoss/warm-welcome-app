@@ -21,7 +21,7 @@ let processingActive = false;
 let popupMode = false;
 let fitTimer = null;
 let currentProgress = {
-  version: '1.2.3',
+  version: '1.2.4',
   total: 0,
   previewReady: 0,
   finalized: 0,
