@@ -535,7 +535,7 @@ function listProfiles() {
 }
 
 function loadProfile(id) {
-  const dir = path.join(profilesRoot(), sanitizeFileName(id));
+  const dir = path.join(profilesRoot(), profileId(id));
   const config = safeJsonRead(path.join(dir, 'perfil.json'), null);
   if (!config) throw new Error('Perfil não encontrado.');
   return {
