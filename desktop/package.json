@@ -1,6 +1,6 @@
 {
   "name": "lucas-gravacoes-desktop",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "description": "Lucas Gravações Desktop",
   "main": "main.cjs",
@@ -11,7 +11,6 @@
     "electron": "44.7.0"
   },
   "dependencies": {
-    "loudness": "0.4.2",
-    "lamejs": "1.2.1"
+    "loudness": "0.4.2"
   }
 }
