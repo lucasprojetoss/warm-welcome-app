@@ -55,9 +55,8 @@ if exist "%TARGET%\.git" (
     rmdir /s /q "%TARGET%"
   )
   echo.
-  echo Conectando ao seu GitHub...
-  echo Como o repositorio e privado, o GitHub pode abrir
-  echo uma janela de login. Entre na sua conta apenas uma vez.
+  echo Baixando a instalacao atual do Lucas Gravacoes...
+  echo O repositorio agora e publico, entao nao precisa fazer login.
   echo.
   "%GITEXE%" clone "%REPO%" "%TARGET%"
   if errorlevel 1 goto :giterror
@@ -77,7 +76,7 @@ exit /b 0
 
 :giterror
 echo.
-echo Nao foi possivel conectar ao repositorio privado.
-echo Confirme o login do GitHub e tente novamente.
+echo Nao foi possivel baixar a atualizacao.
+echo Verifique sua internet e tente novamente.
 pause
 exit /b 1
