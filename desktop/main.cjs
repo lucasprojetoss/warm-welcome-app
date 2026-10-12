@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell, Menu, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -112,14 +112,55 @@ function setProcessingProtection(active) {
   log('Protecao contra suspensao desativada');
 }
 
+function getTargetDisplay() {
+  if (mainWindow) {
+    try { return screen.getDisplayMatching(mainWindow.getBounds()); } catch (_) {}
+  }
+  return screen.getPrimaryDisplay();
+}
+
+function fitWindowToDisplay(forceBounds = false) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const display = getTargetDisplay();
+  const area = display.workArea;
+  const width = Math.max(900, Math.floor(area.width * 0.96));
+  const height = Math.max(620, Math.floor(area.height * 0.94));
+
+  if (forceBounds) {
+    const x = area.x + Math.floor((area.width - width) / 2);
+    const y = area.y + Math.floor((area.height - height) / 2);
+    mainWindow.setBounds({ x, y, width, height }, false);
+  }
+
+  const [contentWidth, contentHeight] = mainWindow.getContentSize();
+  const baseW = 1440;
+  const baseH = 900;
+  const zoom = Math.max(0.72, Math.min(1.08, Math.min(contentWidth / baseW, contentHeight / baseH)));
+  mainWindow.webContents.setZoomFactor(zoom);
+  log('Ajuste de tela:', { monitor: area, contentWidth, contentHeight, zoom: Number(zoom.toFixed(3)) });
+}
+
+let fitTimer = null;
+function scheduleFit() {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => fitWindowToDisplay(false), 120);
+}
+
 async function createWindow() {
   const baseUrl = await startLocalServer();
 
+  const display = screen.getPrimaryDisplay();
+  const initialArea = display.workArea;
+  const initialWidth = Math.max(900, Math.floor(initialArea.width * 0.96));
+  const initialHeight = Math.max(620, Math.floor(initialArea.height * 0.94));
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 980,
-    minHeight: 650,
+    width: initialWidth,
+    height: initialHeight,
+    x: initialArea.x + Math.floor((initialArea.width - initialWidth) / 2),
+    y: initialArea.y + Math.floor((initialArea.height - initialHeight) / 2),
+    minWidth: 760,
+    minHeight: 520,
     show: false,
     backgroundColor: '#111514',
     title: 'Lucas Gravações',
@@ -137,6 +178,7 @@ async function createWindow() {
 
   mainWindow.webContents.on('did-finish-load', () => {
     log('Interface carregada com sucesso');
+    fitWindowToDisplay(false);
   });
 
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
@@ -172,6 +214,9 @@ async function createWindow() {
     if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
   }, 1200);
 
+  mainWindow.on('resize', scheduleFit);
+  mainWindow.on('move', scheduleFit);
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     setProcessingProtection(false);
@@ -180,11 +225,21 @@ async function createWindow() {
 
 ipcMain.on('processing:set', (_event, active) => setProcessingProtection(Boolean(active)));
 
-ipcMain.handle('desktop:status', () => ({
-  electron: true,
-  processingProtected: blockerId !== null && powerSaveBlocker.isStarted(blockerId),
-  localServer: Boolean(localBaseUrl)
-}));
+ipcMain.handle('desktop:status', () => {
+  const display = getTargetDisplay();
+  return {
+    electron: true,
+    version: app.getVersion(),
+    processingProtected: blockerId !== null && powerSaveBlocker.isStarted(blockerId),
+    localServer: Boolean(localBaseUrl),
+    monitor: {
+      width: display.workArea.width,
+      height: display.workArea.height,
+      scaleFactor: display.scaleFactor
+    },
+    zoomFactor: mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getZoomFactor() : 1
+  };
+});
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
