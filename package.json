@@ -11,7 +11,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "electron:start": "electron .",
+    "electron:pack": "electron-builder --dir",
+    "electron:dist": "electron-builder --win nsis"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -91,6 +94,37 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.lucasgravacoes.app",
+    "productName": "Lucas Gravações",
+    "asar": true,
+    "files": [
+      "index.html",
+      "analysis-worker.js",
+      "mp3-worker.js",
+      "manifest.webmanifest",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lucas Gravações"
+    }
   }
 }
