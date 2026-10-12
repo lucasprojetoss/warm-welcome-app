@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#eaf2ee;background:#101613}
+*{box-sizing:border-box}body{margin:0;background:#101613;overflow:hidden}
+#panel{height:100vh;padding:14px 15px;border:1px solid #476257;border-radius:14px;background:linear-gradient(160deg,#18231f,#0e1512);box-shadow:0 16px 45px rgba(0,0,0,.4);cursor:pointer}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.brand{font-size:13px;font-weight:800}.version{font-size:10px;color:#8ea098}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:11px}.card{border:1px solid #31423a;border-radius:8px;padding:7px 9px;background:#121b17}.card small{display:block;color:#8fa099;font-size:9px;text-transform:uppercase;letter-spacing:.08em}.card strong{font-size:16px}
+.current{margin-top:9px;font-size:11px;color:#c4d1cb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.state{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:#8fbfa9}.dot{width:7px;height:7px;border-radius:50%;background:#6bc99e;box-shadow:0 0 8px rgba(107,201,158,.7)}
+.done{border-color:#75b99e!important}.done .state{color:#d8f5e7}.done .dot{background:#a0efc9}
+</style>
+</head>
+<body>
+<div id="panel" title="Clique para abrir o Lucas Gravações">
+  <div class="top"><div class="brand">🎙️ Lucas Gravações</div><div id="version" class="version">v1.2.0</div></div>
+  <div class="grid">
+    <div class="card"><small>Lote</small><strong id="total">0</strong></div>
+    <div class="card"><small>Prévia</small><strong id="preview">0</strong></div>
+    <div class="card"><small>Finalizadas</small><strong id="finalized">0</strong></div>
+    <div class="card"><small>Progresso</small><strong id="percent">0%</strong></div>
+  </div>
+  <div id="current" class="current">Aguardando processamento</div>
+  <div class="state"><span class="dot"></span><span id="state">SEGUNDO PLANO ATIVO</span></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+window.miniDesktop.onStatus(s=>{
+  $('total').textContent=s.total||0;
+  $('preview').textContent=s.previewReady||0;
+  $('finalized').textContent=s.finalized||0;
+  $('percent').textContent=(s.percent||0)+'%';
+  $('current').textContent=s.current||'Processando lote';
+  $('version').textContent='v'+(s.version||'1.2.0');
+  $('state').textContent=s.completed?'LOTE FINALIZADO ✓':'SEGUNDO PLANO ATIVO';
+  $('panel').classList.toggle('done',!!s.completed);
+});
+$('panel').addEventListener('click',()=>window.miniDesktop.restore());
+</script>
+</body>
+</html>
