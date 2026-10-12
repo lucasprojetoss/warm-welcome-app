@@ -222,9 +222,6 @@ function updateProgress(payload = {}) {
     ...payload,
     version: app.getVersion()
   };
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    miniWindow.webContents.send('mini:status', currentProgress);
-  }
 }
 
 async function completionSignal() {
