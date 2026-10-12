@@ -29,7 +29,6 @@ if errorlevel 1 (
 set "NEED_INSTALL=0"
 if not exist "node_modules\electron\dist\electron.exe" set "NEED_INSTALL=1"
 if not exist "node_modules\loudness\package.json" set "NEED_INSTALL=1"
-if not exist "node_modules\lamejs\lame.min.js" set "NEED_INSTALL=1"
 
 if "%NEED_INSTALL%"=="0" (
   for /f "delims=" %%V in ('node -p "require('./package.json').devDependencies.electron"') do set "WANTED_ELECTRON=%%V"
