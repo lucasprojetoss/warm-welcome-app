@@ -12,6 +12,7 @@ let mainWindow = null;
 let blockerId = null;
 let localServer = null;
 let localBaseUrl = null;
+const LOCAL_PORT = 47831;
 
 const appRoot = path.resolve(__dirname, '..');
 const logFile = path.join(__dirname, 'desktop-runtime.log');
@@ -88,9 +89,8 @@ function startLocalServer() {
       reject(error);
     });
 
-    localServer.listen(0, '127.0.0.1', () => {
-      const address = localServer.address();
-      localBaseUrl = 'http://127.0.0.1:' + address.port;
+    localServer.listen(LOCAL_PORT, '127.0.0.1', () => {
+      localBaseUrl = 'http://127.0.0.1:' + LOCAL_PORT;
       log('Servidor local iniciado em', localBaseUrl);
       resolve(localBaseUrl);
     });
@@ -160,13 +160,13 @@ async function createWindow() {
     if (!url.startsWith(baseUrl)) event.preventDefault();
   });
 
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+
   try {
     await mainWindow.loadURL(baseUrl + '/index.html');
   } catch (error) {
     log('Falha ao carregar interface:', error);
   }
-
-  mainWindow.once('ready-to-show', () => mainWindow.show());
 
   setTimeout(() => {
     if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
@@ -186,10 +186,23 @@ ipcMain.handle('desktop:status', () => ({
   localServer: Boolean(localBaseUrl)
 }));
 
-app.whenReady().then(() => {
-  log('Electron iniciado. Hardware acceleration: desativada');
-  createWindow().catch(error => log('createWindow:', error));
-});
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    log('Electron iniciado. Hardware acceleration: desativada');
+    createWindow().catch(error => log('createWindow:', error));
+  });
+}
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
