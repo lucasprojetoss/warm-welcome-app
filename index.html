@@ -45,100 +45,54 @@ $('previewSongSelect').addEventListener('change',e=>loadPreviewSong(e.target.val
 function audioBufferToWavBlob(buffer){const channels=Math.min(2,buffer.numberOfChannels),length=buffer.length,bytes=44+length*channels*2,ab=new ArrayBuffer(bytes),v=new DataView(ab);const str=(o,x)=>{for(let i=0;i<x.length;i++)v.setUint8(o+i,x.charCodeAt(i))};str(0,'RIFF');v.setUint32(4,36+length*channels*2,true);str(8,'WAVE');str(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,channels,true);v.setUint32(24,buffer.sampleRate,true);v.setUint32(28,buffer.sampleRate*channels*2,true);v.setUint16(32,channels*2,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,length*channels*2,true);let o=44;for(let i=0;i<length;i++){for(let c=0;c<channels;c++){const x=Math.max(-1,Math.min(1,buffer.getChannelData(c)[i]||0));v.setInt16(o,x<0?Math.round(x*32768):Math.round(x*32767),true);o+=2}}return new Blob([ab],{type:'audio/wav'})}
 async function renderInsertionPreviewClip(music,jingle,position,duckDb,gain){const before=4,after=5,start=Math.max(0,position-before),end=Math.min(music.duration,position+jingle.duration+after),dur=Math.max(.2,end-start),rate=music.sampleRate,ctx=new OfflineAudioContext(2,Math.ceil(dur*rate),rate),localT=position-start;const song=ctx.createBufferSource(),duck=ctx.createGain();song.buffer=music;song.connect(duck).connect(ctx.destination);duck.gain.setValueAtTime(1,0);duck.gain.setValueAtTime(1,Math.max(0,localT-.5));duck.gain.linearRampToValueAtTime(Math.pow(10,duckDb/20),localT);duck.gain.setValueAtTime(Math.pow(10,duckDb/20),Math.min(dur,localT+jingle.duration));duck.gain.linearRampToValueAtTime(1,Math.min(dur,localT+jingle.duration+1));song.start(0,start,dur);const voice=ctx.createBufferSource(),vg=ctx.createGain();voice.buffer=jingle;vg.gain.value=gain;voice.connect(vg).connect(ctx.destination);voice.start(localT);return {buffer:await ctx.startRendering(),localT,start}}
 let previewBuildToken=0;
-async function buildInsertionPreview(){const token=++previewBuildToken,selected=$('previewSongSelect').value,idx=Number(selected),file=tracks()[idx],jfile=activeJingle(),player=$('previewSongPlayer');if(selected===''||!file){clearInsertionPreview();$('entryPointResult').textContent='Selecione uma música para preparar a prévia.';return}if(!jfile){clearInsertionPreview();$('entryPointResult').textContent='Nenhuma vinheta disponível. Escolha uma vinheta ou salve uma como padrão.';return}let ctx;try{player.pause();$('entryPointResult').textContent='Análise profunda rápida: procurando pausa vocal + batida + retomada…';ctx=new AudioContext();const [music,jingle]=await Promise.all([decode(file,ctx),decode(jfile,ctx)]);if(token!==previewBuildToken)return;lastAutoAnalysis=null;const point=detect(music,jingle.duration);if(!Number.isFinite(point)||point<0||point+jingle.duration>music.duration)throw Error('Tempo de inserção inválido para esta música');insertionPoint=point;insertionDuration=music.duration;$('entryMarker').style.left=Math.max(0,Math.min(100,point/music.duration*100))+'%';const clip=await renderInsertionPreviewClip(music,jingle,point,AUTO_DUCK_DB,AUTO_JINGLE_GAIN);if(token!==previewBuildToken)return;if(insertionMixUrl)URL.revokeObjectURL(insertionMixUrl);insertionMixUrl=URL.createObjectURL(audioBufferToWavBlob(clip.buffer));player.src=insertionMixUrl;player.load();const entryInPreview=clip.localT,endInPreview=Math.min(clip.buffer.duration,entryInPreview+jingle.duration),confidence=lastAutoAnalysis?' • confiança '+lastAutoAnalysis.label+' ('+lastAutoAnalysis.confidence+'%)':'';$('entryPointResult').textContent='PRÉVIA PRONTA • na música, a vinheta entra em '+formatClock(point)+' ('+point.toFixed(1)+' s)'+confidence+' • neste player ela entra em '+entryInPreview.toFixed(1)+' s e termina em '+endInPreview.toFixed(1)+' s. Aperte Play para conferir.'}catch(e){if(token===previewBuildToken){clearInsertionPreview();$('entryPointResult').textContent='Não foi possível preparar a prévia: '+e.message}}finally{if(ctx)await ctx.close()}}
+async function buildInsertionPreview(){const previewStarted=performance.now(),token=++previewBuildToken,selected=$('previewSongSelect').value,idx=Number(selected),file=tracks()[idx],jfile=activeJingle(),player=$('previewSongPlayer');if(selected===''||!file){clearInsertionPreview();$('entryPointResult').textContent='Selecione uma música para preparar a prévia.';return}if(!jfile){clearInsertionPreview();$('entryPointResult').textContent='Nenhuma vinheta disponível. Escolha uma vinheta ou salve uma como padrão.';return}let ctx;try{player.pause();$('entryPointResult').textContent='Análise profunda rápida: procurando pausa vocal + batida + retomada…';ctx=new AudioContext();const [music,jingle]=await Promise.all([decode(file,ctx),decode(jfile,ctx)]);if(token!==previewBuildToken)return;lastAutoAnalysis=null;const point=detect(music,jingle.duration);if(!Number.isFinite(point)||point<0||point+jingle.duration>music.duration)throw Error('Tempo de inserção inválido para esta música');insertionPoint=point;insertionDuration=music.duration;$('entryMarker').style.left=Math.max(0,Math.min(100,point/music.duration*100))+'%';const clip=await renderInsertionPreviewClip(music,jingle,point,AUTO_DUCK_DB,AUTO_JINGLE_GAIN);if(token!==previewBuildToken)return;if(insertionMixUrl)URL.revokeObjectURL(insertionMixUrl);insertionMixUrl=URL.createObjectURL(audioBufferToWavBlob(clip.buffer));player.src=insertionMixUrl;player.load();const entryInPreview=clip.localT,endInPreview=Math.min(clip.buffer.duration,entryInPreview+jingle.duration),confidence=lastAutoAnalysis?' • confiança '+lastAutoAnalysis.label+' ('+lastAutoAnalysis.confidence+'%)':'';$('entryPointResult').textContent='PRÉVIA PRONTA em '+((performance.now()-previewStarted)/1000).toFixed(1)+' s • na música, a vinheta entra em '+formatClock(point)+' ('+point.toFixed(1)+' s)'+confidence+' • neste player ela entra em '+entryInPreview.toFixed(1)+' s e termina em '+endInPreview.toFixed(1)+' s. Aperte Play para conferir.'}catch(e){if(token===previewBuildToken){clearInsertionPreview();$('entryPointResult').textContent='Não foi possível preparar a prévia: '+e.message}}finally{if(ctx)await ctx.close()}}
 $('jingle').addEventListener('change',()=>{updateDefaultJingleStatus();buildInsertionPreview()});
 $('tracks').addEventListener('change',()=>{for(const e of previewEntries){if(e.processedUrl)URL.revokeObjectURL(e.processedUrl)}previewEntries=[];$('compareSong').replaceChildren();if(originalPreviewUrl)URL.revokeObjectURL(originalPreviewUrl);originalPreviewUrl=null;exportedFiles=[];$('downloadZip').disabled=true;$('previewArea').hidden=true;$('files').textContent=tracks().map(f=>f.name).join(' • ')||'Nenhuma música selecionada.';$('previewSongSelect').replaceChildren(new Option('Selecione uma música...',''),...tracks().map((f,i)=>new Option(f.name,String(i))));if(tracks().length){$('previewSongSelect').value='0';loadPreviewSong('0')}else loadPreviewSong('')});
-async function decode(file,ctx){try{return await ctx.decodeAudioData(await file.arrayBuffer())}catch(e){throw Error('Formato de áudio não suportado pelo navegador ou arquivo inválido')}}
+const decodedAudioCache=[];async function decode(file,ctx){const hit=decodedAudioCache.find(x=>x.file===file);if(hit){hit.used=Date.now();return hit.buffer}try{const buffer=await ctx.decodeAudioData(await file.arrayBuffer());decodedAudioCache.push({file,buffer,used:Date.now()});decodedAudioCache.sort((a,b)=>b.used-a.used);while(decodedAudioCache.length>3)decodedAudioCache.pop();return buffer}catch(e){throw Error('Formato de áudio não suportado pelo navegador ou arquivo inválido')}}
 function detect(buf,jingleDuration){
-  const sr=buf.sampleRate,channels=Math.min(2,buf.numberOfChannels),stepSec=.25,frameSec=.34;
-  const step=Math.max(1,Math.floor(sr*stepSec)),frame=Math.max(1024,Math.floor(sr*frameSec));
-  const startSec=Math.max(14,Math.min(28,buf.duration*.075));
-  const endSec=Math.min(buf.duration-jingleDuration-5,buf.duration*.94);
+  const sr=buf.sampleRate,channels=Math.min(2,buf.numberOfChannels),l=buf.getChannelData(0),r=channels>1?buf.getChannelData(1):l;
+  const startSec=Math.max(14,Math.min(28,buf.duration*.075)),endSec=Math.min(buf.duration-jingleDuration-5,buf.duration*.94);
   if(endSec<=startSec+3){lastAutoAnalysis={confidence:0,label:'baixa',reason:'música curta'};return Math.max(0,Math.min(startSec,buf.duration-jingleDuration-1))}
-  const beatFreqs=[85,115,150,190,235],vocalFreqs=[520,760,1050,1450,1950,2700,3600],airFreqs=[4800,6500];
-  const frames=[];
-  const powerAt=(pos,freq,mode)=>{
-    const omega=2*Math.PI*freq/sr,coeff=2*Math.cos(omega),cs=Math.cos(omega),sn=Math.sin(omega);
-    let s0=0,s1=0,s2=0,count=0;
-    const l=buf.getChannelData(0),r=channels>1?buf.getChannelData(1):l;
-    for(let n=0;n<frame&&pos+n<buf.length;n+=8){
-      let x;
-      if(mode==='mid')x=((l[pos+n]||0)+(r[pos+n]||0))*.5;
-      else if(mode==='side')x=((l[pos+n]||0)-(r[pos+n]||0))*.5;
-      else x=((l[pos+n]||0)+(r[pos+n]||0))*.5;
-      s0=x+coeff*s1-s2;s2=s1;s1=s0;count++;
-    }
-    const re=s1-s2*cs,im=s2*sn;
-    return (re*re+im*im)/Math.max(1,count*count);
-  };
-  for(let pos=Math.floor(startSec*sr);pos+frame<Math.floor(endSec*sr);pos+=step){
-    const l=buf.getChannelData(0),r=channels>1?buf.getChannelData(1):l;
-    let rms=0,midR=0,sideR=0,nr=0,flux=0,prev=0;
-    for(let n=0;n<frame&&pos+n<buf.length;n+=10){
-      const lv=l[pos+n]||0,rv=r[pos+n]||0,m=(lv+rv)*.5,sd=(lv-rv)*.5,a=Math.abs(m);
-      rms+=(lv*lv+rv*rv)*.5;midR+=m*m;sideR+=sd*sd;flux+=Math.max(0,a-prev);prev=a;nr++;
-    }
-    let beat=0,vocalMid=0,vocalSide=0,air=0;
-    for(const f of beatFreqs)beat+=powerAt(pos,f,'mid');
-    for(const f of vocalFreqs){vocalMid+=powerAt(pos,f,'mid');vocalSide+=powerAt(pos,f,'side')}
-    for(const f of airFreqs)air+=powerAt(pos,f,'mid');
-    const total=beat+vocalMid+air+1e-12,centerRatio=vocalMid/(vocalSide+vocalMid+1e-12);
-    frames.push({t:pos/sr,rms:Math.sqrt(rms/Math.max(1,nr)),midR:Math.sqrt(midR/Math.max(1,nr)),sideR:Math.sqrt(sideR/Math.max(1,nr)),beatShare:beat/total,vocalShare:vocalMid/total,centerRatio,flux:flux/Math.max(1,nr)});
-  }
   const median=a=>{const x=[...a].sort((m,n)=>m-n);return x[Math.floor(x.length/2)]};
-  const quant=(a,p)=>{const x=[...a].sort((m,n)=>m-n);return x[Math.max(0,Math.min(x.length-1,Math.round((x.length-1)*p)))]};
-  const avg=(arr,k)=>arr.reduce((a,x)=>a+x[k],0)/Math.max(1,arr.length);
-  const medV=median(frames.map(x=>x.vocalShare)),medB=median(frames.map(x=>x.beatShare)),medR=median(frames.map(x=>x.rms)),medFlux=median(frames.map(x=>x.flux));
-  const q25R=quant(frames.map(x=>x.rms),.25),q85R=quant(frames.map(x=>x.rms),.85);
-  const gapN=Math.max(2,Math.ceil(jingleDuration/stepSec)),preN=Math.ceil(2.0/stepSec),postN=Math.ceil(2.5/stepSec);
+  const avg=(arr,k)=>arr.reduce((sum,x)=>sum+x[k],0)/Math.max(1,arr.length);
+  const bandPower=(pos,frame,freq,sampleStep,mode='mid')=>{const omega=2*Math.PI*freq/sr,coeff=2*Math.cos(omega),cs=Math.cos(omega),sn=Math.sin(omega);let s0=0,s1=0,s2=0,count=0;for(let n=0;n<frame&&pos+n<buf.length;n+=sampleStep){const lv=l[pos+n]||0,rv=r[pos+n]||0,x=mode==='side'?(lv-rv)*.5:(lv+rv)*.5;s0=x+coeff*s1-s2;s2=s1;s1=s0;count++}const re=s1-s2*cs,im=s2*sn;return (re*re+im*im)/Math.max(1,count*count)};
+  const features=(t,frameSec,sampleStep,deep=false)=>{const pos=Math.max(0,Math.min(buf.length-1,Math.floor(t*sr))),frame=Math.max(512,Math.floor(frameSec*sr));let rms=0,flux=0,prev=0,nr=0;for(let n=0;n<frame&&pos+n<buf.length;n+=sampleStep){const m=((l[pos+n]||0)+(r[pos+n]||0))*.5,a=Math.abs(m);rms+=m*m;flux+=Math.max(0,a-prev);prev=a;nr++}const beatFs=deep?[90,120,155,195,235]:[110,180],vocalFs=deep?[520,760,1050,1450,1950,2700,3500]:[750,1500,2800];let beat=0,vocalMid=0,vocalSide=0;for(const f of beatFs)beat+=bandPower(pos,frame,f,sampleStep,'mid');for(const f of vocalFs){vocalMid+=bandPower(pos,frame,f,sampleStep,'mid');if(deep||f===1500)vocalSide+=bandPower(pos,frame,f,sampleStep,'side')}const total=beat+vocalMid+1e-12;return {t,rms:Math.sqrt(rms/Math.max(1,nr)),flux:flux/Math.max(1,nr),beatShare:beat/total,vocalShare:vocalMid/total,center:vocalMid/(vocalMid+vocalSide+1e-12)}};
+
+  // PASS 1: fast whole-song scan.
+  const coarseStep=.5,coarse=[];
+  for(let t=startSec;t<endSec;t+=coarseStep)coarse.push(features(t,.28,18,false));
+  if(coarse.length<8){lastAutoAnalysis={confidence:0,label:'baixa',reason:'poucos dados'};return Math.max(0,Math.min(startSec,buf.duration-jingleDuration-1))}
+  const medV=median(coarse.map(x=>x.vocalShare)),medB=median(coarse.map(x=>x.beatShare)),medR=median(coarse.map(x=>x.rms)),gapN=Math.max(2,Math.ceil(jingleDuration/coarseStep)),preN=4,postN=5;
+  const candidates=[];
+  for(let i=preN;i+gapN+postN<coarse.length;i++){
+    const gap=coarse.slice(i,i+gapN),pre=coarse.slice(i-preN,i),post=coarse.slice(i+gapN,i+gapN+postN);
+    const gapV=avg(gap,'vocalShare'),preV=avg(pre,'vocalShare'),postV=avg(post,'vocalShare'),gapB=avg(gap,'beatShare'),postB=avg(post,'beatShare'),gapR=avg(gap,'rms'),postR=Math.max(...post.map(x=>x.rms));
+    const vocalDrop=Math.max(0,(Math.max(preV,medV)-gapV)/Math.max(.02,medV)),vocalReturn=Math.max(0,(postV-gapV)/Math.max(.02,medV)),beatPresent=Math.min(2,gapB/Math.max(.02,medB)),beatRise=Math.max(0,(postB-gapB)/Math.max(.02,medB)),energyRise=Math.max(0,(postR-gapR)/Math.max(.01,medR));
+    const score=3.3*Math.min(2,vocalDrop)+2.5*Math.min(2,vocalReturn)+1.4*Math.min(1.7,beatPresent)+1.8*Math.min(2,beatRise)+1.8*Math.min(2,energyRise);
+    candidates.push({i,t:coarse[i].t,score});
+  }
+  candidates.sort((x,y)=>y.score-x.score);
+  const picked=[];
+  for(const c of candidates){if(picked.every(p=>Math.abs(p.t-c.t)>Math.max(4,jingleDuration*.7)))picked.push(c);if(picked.length>=8)break}
+  if(!picked.length){lastAutoAnalysis={confidence:0,label:'baixa',reason:'nenhum candidato'};return Math.max(0,Math.min(startSec,buf.duration-jingleDuration-1))}
+
+  // PASS 2: detailed scan only near the best candidates.
   let best=null;
-  for(let i=preN;i+gapN+postN<frames.length;i++){
-    const gap=frames.slice(i,i+gapN),pre=frames.slice(i-preN,i),post=frames.slice(i+gapN,i+gapN+postN);
-    const gapV=avg(gap,'vocalShare'),preV=avg(pre,'vocalShare'),postV=avg(post,'vocalShare');
-    const gapCenter=avg(gap,'centerRatio'),preCenter=avg(pre,'centerRatio'),postCenter=avg(post,'centerRatio');
-    const gapBeat=avg(gap,'beatShare'),postBeat=avg(post,'beatShare');
-    const gapR=avg(gap,'rms'),preR=avg(pre,'rms'),postR=avg(post,'rms');
-    const postFlux=avg(post,'flux');
-    const maxPostR=Math.max(...post.map(x=>x.rms)),maxPostBeat=Math.max(...post.map(x=>x.beatShare));
-    const maxGapV=Math.max(...gap.map(x=>x.vocalShare));
-    const vocalDrop=Math.max(0,(Math.max(preV,medV)-gapV)/Math.max(.02,medV));
-    const centerDrop=Math.max(0,((preCenter+postCenter)*.5-gapCenter)/Math.max(.05,(preCenter+postCenter)*.5));
-    const vocalReturn=Math.max(0,(postV-gapV)/Math.max(.02,medV));
-    const beatPresent=Math.max(0,Math.min(2,gapBeat/Math.max(.02,medB)));
-    const beatExplosion=Math.max(0,(maxPostBeat-gapBeat)/Math.max(.02,medB));
-    const energyRise=Math.max(0,(maxPostR-gapR)/Math.max(.01,medR));
-    const transientRise=Math.max(0,(postFlux-medFlux)/Math.max(.0001,medFlux));
-    const phraseBoundary=Math.max(0,(preV-gapV)/Math.max(.02,medV));
-    const voiceLeak=Math.max(0,(maxGapV-medV*.92)/Math.max(.02,medV));
-    const tooSilent=gapR<q25R*.45?1:0,tooHot=gapR>q85R*1.08?1:0;
-    const returnWeak=(postV<medV*.82&&maxPostR<medR*1.08)?1:0;
-    const edgePenalty=(i<frames.length*.06||i>frames.length*.9)?1:0;
-    const score=
-      3.6*Math.min(2,vocalDrop)+
-      2.4*Math.min(2,centerDrop)+
-      2.8*Math.min(2,vocalReturn)+
-      1.5*Math.min(1.6,beatPresent)+
-      2.1*Math.min(2,beatExplosion)+
-      2.0*Math.min(2,energyRise)+
-      .8*Math.min(2,transientRise)+
-      1.4*Math.min(2,phraseBoundary)-
-      3.2*Math.min(2,voiceLeak)-
-      1.8*tooSilent-.9*tooHot-1.6*returnWeak-.8*edgePenalty;
-    if(!best||score>best.score)best={score,i,vocalDrop,centerDrop,vocalReturn,beatPresent,beatExplosion,energyRise,voiceLeak,gapV,postV,gapBeat,postBeat};
+  for(const cand of picked){
+    for(let t=Math.max(startSec,cand.t-1.5);t<=Math.min(endSec,cand.t+1.5);t+=.125){
+      const pre=[features(Math.max(startSec,t-1.0),.22,12,true),features(Math.max(startSec,t-.5),.22,12,true)];
+      const gapSamples=[];for(let g=0;g<Math.max(.5,jingleDuration);g+=.5)gapSamples.push(features(Math.min(endSec,t+g),.22,12,true));
+      const post=[features(Math.min(endSec,t+jingleDuration+.25),.22,12,true),features(Math.min(endSec,t+jingleDuration+.75),.22,12,true),features(Math.min(endSec,t+jingleDuration+1.25),.22,12,true)];
+      const gapV=avg(gapSamples,'vocalShare'),preV=avg(pre,'vocalShare'),postV=avg(post,'vocalShare'),gapB=avg(gapSamples,'beatShare'),postB=Math.max(...post.map(x=>x.beatShare)),gapR=avg(gapSamples,'rms'),postR=Math.max(...post.map(x=>x.rms)),gapCenter=avg(gapSamples,'center'),preCenter=avg(pre,'center'),postCenter=avg(post,'center');
+      const vocalDrop=Math.max(0,(preV-gapV)/Math.max(.02,medV)),centerDrop=Math.max(0,((preCenter+postCenter)*.5-gapCenter)/Math.max(.05,(preCenter+postCenter)*.5)),vocalReturn=Math.max(0,(postV-gapV)/Math.max(.02,medV)),beatPresent=Math.min(2,gapB/Math.max(.02,medB)),beatExplosion=Math.max(0,(postB-gapB)/Math.max(.02,medB)),energyRise=Math.max(0,(postR-gapR)/Math.max(.01,medR)),voiceLeak=Math.max(0,(gapV-medV*.92)/Math.max(.02,medV));
+      const score=4*Math.min(2,vocalDrop)+2.2*Math.min(2,centerDrop)+3*Math.min(2,vocalReturn)+1.5*Math.min(1.7,beatPresent)+2.2*Math.min(2,beatExplosion)+2*Math.min(2,energyRise)-3*Math.min(2,voiceLeak);
+      if(!best||score>best.score)best={t,score,vocalDrop,vocalReturn,beatExplosion,energyRise};
+    }
   }
-  if(!best){lastAutoAnalysis={confidence:0,label:'baixa',reason:'nenhum ponto adequado'};return Math.max(0,Math.min(startSec,buf.duration-jingleDuration-1))}
-  // refine around winning window to align with the local phrase ending / beat transition
-  let refined=best.i,bestLocal=-Infinity;
-  for(let k=Math.max(preN,best.i-3);k<=Math.min(frames.length-gapN-postN-1,best.i+3);k++){
-    const prev=frames[Math.max(0,k-1)],cur=frames[k],after=frames[Math.min(frames.length-1,k+1)];
-    const local=(prev.vocalShare-cur.vocalShare)*4+(after.beatShare-cur.beatShare)*1.2+(cur.flux/Math.max(.0001,medFlux))*.18;
-    if(local>bestLocal){bestLocal=local;refined=k}
-  }
-  const point=frames[refined].t;
-  const confRaw=Math.max(0,Math.min(1,(best.score+1.5)/12.5)),confidence=Math.round(confRaw*100);
-  const label=confidence>=76?'alta':confidence>=52?'média':'baixa';
-  lastAutoAnalysis={point,confidence,label,score:best.score,vocalDrop:best.vocalDrop,vocalReturn:best.vocalReturn,beatExplosion:best.beatExplosion,energyRise:best.energyRise};
-  return Math.max(0,Math.min(point,buf.duration-jingleDuration-1));
+  if(!best){lastAutoAnalysis={confidence:0,label:'baixa',reason:'refino sem resultado'};return Math.max(0,Math.min(picked[0].t,buf.duration-jingleDuration-1))}
+  const confidence=Math.round(Math.max(0,Math.min(100,(best.score+1)*7.2))),label=confidence>=76?'alta':confidence>=52?'média':'baixa';
+  lastAutoAnalysis={point:best.t,confidence,label,score:best.score,vocalDrop:best.vocalDrop,vocalReturn:best.vocalReturn,beatExplosion:best.beatExplosion,energyRise:best.energyRise,mode:'duas-passagens'};
+  return Math.max(0,Math.min(best.t,buf.duration-jingleDuration-1));
 }
 async function render(music,jingle,position,duckDb,gain){const rate=music.sampleRate,duration=music.duration,ctx=new OfflineAudioContext(2,Math.ceil(duration*rate),rate);const song=ctx.createBufferSource();song.buffer=music;const duck=ctx.createGain();song.connect(duck).connect(ctx.destination);const t=Math.min(position,Math.max(0,duration));duck.gain.setValueAtTime(1,0);duck.gain.setValueAtTime(1,Math.max(0,t-.5));duck.gain.linearRampToValueAtTime(Math.pow(10,duckDb/20),t);duck.gain.setValueAtTime(Math.pow(10,duckDb/20),t+jingle.duration);duck.gain.linearRampToValueAtTime(1,Math.min(duration,t+jingle.duration+1));song.start(0);const voice=ctx.createBufferSource();voice.buffer=jingle;const vg=ctx.createGain();vg.gain.value=gain;voice.connect(vg).connect(ctx.destination);voice.start(t);const rendered=await ctx.startRendering();return {buffer:rendered,scale:1}}
 function backgroundFriendlyYield(){if(document.hidden)return Promise.resolve();if(window.scheduler&&typeof window.scheduler.yield==='function')return window.scheduler.yield();return new Promise(resolve=>{const ch=new MessageChannel();ch.port1.onmessage=()=>{ch.port1.close();ch.port2.close();resolve()};ch.port2.postMessage(0)})}
