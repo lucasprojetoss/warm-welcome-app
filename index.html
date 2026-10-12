@@ -411,9 +411,113 @@ async function prepareAllPreviews(){
     }
   }
 }
-$('jingle').addEventListener('change',()=>{mp3WorkerJingle=null;updateDefaultJingleStatus();invalidatePreviewPreparation('Vinheta alterada. Clique em OK para preparar a prévia.')});
-$('tracks').addEventListener('change',()=>{for(const e of previewEntries){if(e.processedUrl)URL.revokeObjectURL(e.processedUrl)}previewEntries=[];$('compareSong').replaceChildren();if(originalPreviewUrl)URL.revokeObjectURL(originalPreviewUrl);originalPreviewUrl=null;exportedFiles=[];$('downloadZip').disabled=true;$('previewArea').hidden=true;$('files').textContent=tracks().map(f=>f.name).join(' • ')||'Nenhuma música selecionada.';$('previewSongSelect').replaceChildren(new Option('Selecione uma música...',''),...tracks().map((f,i)=>new Option(f.name,String(i))));previewBatchToken++;previewPreparing=false;previewProductionDone=true;signalPipeline();resetAutoPipeline();clearPreparedPreviews();resetPreviewSongStates();clearFinalOutputs();previewAuthorized=false;clearInsertionPreview();if(tracks().length){$('previewSongSelect').value='0';$('entryPointResult').textContent='Músicas carregadas. Escolha o modo e clique em “OK — Preparar prévia”.'}else{$('previewSongSelect').value='';$('entryPointResult').textContent='Carregue as músicas e a vinheta para preparar a prévia.'}updatePreparePreviewButton()});
-$('preparePreview').addEventListener('click',async()=>{const files=tracks(),jingle=activeJingle(),btn=$('preparePreview');if(!files.length){$('preparePreviewStatus').textContent='Adicione pelo menos uma música.';return}if(!jingle){$('preparePreviewStatus').textContent='Escolha uma vinheta ou salve uma vinheta padrão.';return}desktopProcessing(true);btn.disabled=true;btn.textContent='Iniciando motor…';$('preparePreviewStatus').textContent='Preparando processamento em segundo plano…';let workerNote='';try{ensureAnalysisWorker();await ensureMp3WorkerBase();workerNote='Workers ativos • '}catch(e){workerNote='Modo compatibilidade • '}previewAuthorized=true;if($('previewSongSelect').value===''&&files.length)$('previewSongSelect').value='0';$('preparePreviewStatus').textContent=workerNote+'processamento iniciado.';showWizardStep(2);renderPreviewQueue();prepareAllPreviews()});
+$('jingle').addEventListener('change',()=>{mp3WorkerJingle=null;updateDefaultJingleStatus();if(processing||previewPreparing)invalidatePreviewPreparation('Vinheta alterada. Reinicie o lote para aplicar a nova vinheta.');else updatePreparePreviewButton()});
+
+$('tracks').addEventListener('change',()=>{
+  desktopTracks=[];desktopFolder=null;batchOriginalTotal=0;finalizedCount=0;resumedCompletedPaths=[];resumeState=null;batchCompleted=false;currentWork='Aguardando';
+  $('selectedFolder').textContent='Nenhuma pasta selecionada.';
+  resetLoadedTracksUi()
+});
+
+$('selectMusicFolder').addEventListener('click',async()=>{
+  if(!isElectron())return;
+  try{
+    const result=await window.lucasDesktop.selectMusicFolder();
+    if(!result)return;
+    setDesktopFolderResult(result);
+    if(!desktopTracks.length)$('selectedFolder').textContent=result.folder+' • nenhum MP3 encontrado.';
+  }catch(e){$('selectedFolder').textContent='Erro ao abrir pasta: '+e.message}
+});
+
+$('replaceOriginals').addEventListener('change',()=>{
+  replaceOriginals=$('replaceOriginals').checked;
+  persistDesktopDefaults().catch(()=>{});
+});
+
+$('saveProfile').addEventListener('click',async()=>{
+  try{$('saveProfile').disabled=true;$('profileStatus').textContent='Salvando...';await saveCurrentProfile()}
+  catch(e){$('profileStatus').textContent='Erro: '+e.message}
+  finally{$('saveProfile').disabled=false}
+});
+$('applyProfile').addEventListener('click',async()=>{
+  try{$('applyProfile').disabled=true;$('profileStatus').textContent='Aplicando...';await applySelectedProfile()}
+  catch(e){$('profileStatus').textContent='Erro: '+e.message}
+  finally{$('applyProfile').disabled=false}
+});
+
+$('resumeBatch').addEventListener('click',async()=>{
+  if(!isElectron()||!resumeState)return;
+  try{
+    const completed=Array.isArray(resumeState.completed)?resumeState.completed:[];
+    const result=await window.lucasDesktop.loadMusicFolder(resumeState.folder);
+    applySettingsSnapshot(resumeState.settings||{});
+    setDesktopFolderResult(result,{resume:true,completed});
+    $('resumeBox').hidden=true;
+    currentWork='Lote retomado';updateDashboard();
+    showWizardStep(2)
+  }catch(e){$('resumeInfo').textContent='Não foi possível retomar: '+e.message}
+});
+
+$('refreshDiagnostics').addEventListener('click',refreshDiagnostics);
+
+$('preparePreview').addEventListener('click',async()=>{
+  const files=tracks(),jingle=activeJingle(),btn=$('preparePreview');
+  if(!files.length){$('preparePreviewStatus').textContent=isElectron()?'Selecione uma pasta com músicas.':'Adicione pelo menos uma música.';return}
+  if(!jingle){$('preparePreviewStatus').textContent='Escolha uma vinheta ou use a vinheta padrão.';return}
+  try{
+    btn.disabled=true;
+    const selected=$('jingle').files&&$('jingle').files[0];
+    if(selected)await saveDefaultJingleFile(selected);
+    await persistDesktopDefaults();
+    $('preparePreviewStatus').textContent='Configuração pronta. Confira os metadados.';
+    showWizardStep(2)
+  }catch(e){$('preparePreviewStatus').textContent='Erro ao salvar configuração: '+e.message}
+  finally{btn.disabled=false}
+});
+
+$('startBatch').addEventListener('click',async()=>{
+  const files=tracks(),jingle=activeJingle(),btn=$('startBatch');
+  if(!files.length){$('defaultMetadataStatus').textContent='Volte em Músicas e selecione o lote.';return}
+  if(!jingle){$('defaultMetadataStatus').textContent='Volte em Músicas e escolha a vinheta.';return}
+  try{
+    btn.disabled=true;btn.textContent='Iniciando lote…';
+    await saveDefaultMetadataSettings();
+    replaceOriginals=$('replaceOriginals').checked;
+    await persistDesktopDefaults();
+    if(!batchOriginalTotal)batchOriginalTotal=files.length;
+    if(!resumeState)resumedCompletedPaths=[];
+    finalizedCount=resumedCompletedPaths.length;
+    batchCompleted=false;currentWork='Iniciando lote';updateDashboard();
+    await saveBatchCheckpoint();
+    desktopProcessing(true);
+    let workerNote='';
+    try{ensureAnalysisWorker();await ensureMp3WorkerBase();workerNote='Motores ativos • '}catch(e){workerNote='Modo compatibilidade • '}
+    previewAuthorized=true;
+    if($('previewSongSelect').value===''&&files.length)$('previewSongSelect').value='0';
+    $('previewBatchStatus').textContent=workerNote+'análise iniciada.';
+    showWizardStep(3);renderPreviewQueue();prepareAllPreviews()
+  }catch(e){
+    desktopProcessing(false);
+    $('defaultMetadataStatus').textContent='Não foi possível iniciar: '+e.message
+  }finally{btn.disabled=false;btn.textContent='OK — Iniciar lote'}
+});
+
+async function initDesktopUi(){
+  if(!isElectron()){updatePreparePreviewButton();return}
+  $('desktopFolderBox').hidden=false;
+  $('profileBox').hidden=false;
+  $('replaceToggleWrap').hidden=false;
+  $('diagnosticBox').hidden=false;
+  $('browserTrackPicker').hidden=true;
+  $('downloadZip').hidden=true;
+  $('installApp').hidden=true;
+  $('enableNotifications').hidden=true;
+  await refreshProfiles();
+  await checkResumeState();
+  updateDashboard();
+}
+initDesktopUi();
+if(isElectron()&&window.lucasDesktop.onCompletionChime)window.lucasDesktop.onCompletionChime(()=>completionTone());
 updatePreparePreviewButton();
 const decodedAudioCache=[];async function decode(file,ctx){const hit=decodedAudioCache.find(x=>x.file===file);if(hit){hit.used=Date.now();return hit.buffer}try{const buffer=await ctx.decodeAudioData(await file.arrayBuffer());decodedAudioCache.push({file,buffer,used:Date.now()});decodedAudioCache.sort((a,b)=>b.used-a.used);while(decodedAudioCache.length>1)decodedAudioCache.pop();return buffer}catch(e){throw Error('Formato de áudio não suportado pelo navegador ou arquivo inválido')}}
 async function detect(buf,jingleDuration){
