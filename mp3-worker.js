@@ -1,18 +1,5 @@
 let LAME_OK=false,J=null;
-function loadLame(){
-  let lastError=null;
-  try{
-    importScripts('./desktop/node_modules/lamejs/lame.min.js');
-    if(self.lamejs&&self.lamejs.Mp3Encoder)return true;
-  }catch(e){lastError=e}
-  try{
-    importScripts('https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js');
-    if(self.lamejs&&self.lamejs.Mp3Encoder)return true;
-  }catch(e){lastError=e}
-  if(lastError)throw lastError;
-  return false;
-}
-try{LAME_OK=loadLame();postMessage({type:'boot',ok:LAME_OK,error:LAME_OK?'':'lamejs não carregou'})}catch(e){postMessage({type:'boot',ok:false,error:e&&e.message?e.message:String(e)})}
+try{importScripts('https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js');LAME_OK=!!(self.lamejs&&self.lamejs.Mp3Encoder);postMessage({type:'boot',ok:LAME_OK,error:LAME_OK?'':'lamejs não carregou'})}catch(e){postMessage({type:'boot',ok:false,error:e&&e.message?e.message:String(e)})}
 function clamp(x){return x<-1?-1:x>1?1:x}
 function sampleLinear(arr,pos){if(pos<0||pos>=arr.length-1)return pos>=0&&pos<arr.length?arr[pos]:0;const i=pos|0,f=pos-i;return arr[i]*(1-f)+arr[i+1]*f}
 self.onmessage=e=>{
