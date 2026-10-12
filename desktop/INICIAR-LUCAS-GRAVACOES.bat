@@ -37,6 +37,11 @@ if "%NEED_INSTALL%"=="0" (
   if not "%WANTED_ELECTRON%"=="%INSTALLED_ELECTRON%" set "NEED_INSTALL=1"
 )
 
+if "%NEED_INSTALL%"=="0" (
+  call npm ls --depth=0 --silent >nul 2>nul
+  if errorlevel 1 set "NEED_INSTALL=1"
+)
+
 if "%NEED_INSTALL%"=="1" (
   echo %date% %time% - Atualizando Electron>>"%LOG%"
   call npm install --no-audit --no-fund --prefer-offline >>"%LOG%" 2>&1
