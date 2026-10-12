@@ -271,9 +271,45 @@ async function finalizePreparedSong(job,jingle,files){
   showMiniToast('final','Música finalizada',file.name);
   updateDashboard();
 }
-async function runAutoFinalizer(token,jingle,files){if(autoFinalizeActive)return;autoFinalizeActive=true;processing=true;cancelRequested=false;const btn=$('process');btn.disabled=true;btn.textContent='Finalizando automaticamente…';$('cancelProcess').disabled=false;try{while(token===previewBatchToken&&previewAuthorized&&!cancelRequested){while(!autoFinalizeQueue.length&&!previewProductionDone&&token===previewBatchToken&&!cancelRequested)await waitPipelineSignal();if(token!==previewBatchToken||cancelRequested)break;if(!autoFinalizeQueue.length&&previewProductionDone)break;const job=autoFinalizeQueue.shift();signalPipeline();if(!job)continue;try{setFinalSongProgress(job.i,30,'Prévia pronta • finalizando');await finalizePreparedSong(job,jingle,files)}catch(e){setFinalSongProgress(job.i,100,'Erro','error');showMiniToast('error','Erro ao finalizar',job.file.name+': '+e.message);const err=document.createElement('p');err.textContent=job.file.name+': '+e.message;err.style.color='#ffb4b4';$('results').append(err)}}if(token===previewBatchToken&&!cancelRequested){$('status').textContent='Finalização automática concluída. '+exportedFiles.length+'/'+files.length+' músicas prontas.';$('downloadZip').disabled=!exportedFiles.length;if(exportedFiles.length)showReadyNotice(exportedFiles.length)}}finally{if(token===previewBatchToken){autoFinalizeActive=false;processing=false;desktopProcessing(false);$('cancelProcess').disabled=true;btn.disabled=false;btn.textContent='Reprocessar lote'}}}
+async function runAutoFinalizer(token,jingle,files){
+  if(autoFinalizeActive)return;
+  autoFinalizeActive=true;processing=true;cancelRequested=false;batchCompleted=false;
+  const btn=$('process');btn.disabled=true;btn.textContent='Finalizando automaticamente…';$('cancelProcess').disabled=false;
+  updateDashboard();
+  try{
+    while(token===previewBatchToken&&previewAuthorized&&!cancelRequested){
+      while(!autoFinalizeQueue.length&&!previewProductionDone&&token===previewBatchToken&&!cancelRequested)await waitPipelineSignal();
+      if(token!==previewBatchToken||cancelRequested)break;
+      if(!autoFinalizeQueue.length&&previewProductionDone)break;
+      const job=autoFinalizeQueue.shift();signalPipeline();if(!job)continue;
+      try{
+        setFinalSongProgress(job.i,30,'Prévia pronta • finalizando');
+        await finalizePreparedSong(job,jingle,files)
+      }catch(e){
+        setFinalSongProgress(job.i,100,'Erro','error');
+        showMiniToast('error','Erro ao finalizar',job.file.name+': '+e.message);
+        const err=document.createElement('p');err.textContent=job.file.name+': '+e.message;err.style.color='#ffb4b4';$('results').append(err)
+      }
+    }
 
-
+    const total=currentBatchTotal()||files.length;
+    if(token===previewBatchToken&&!cancelRequested){
+      $('status').textContent='Finalização automática concluída. '+finalizedCount+'/'+total+' músicas prontas.';
+      if(!isElectron())$('downloadZip').disabled=!exportedFiles.length;
+      if(finalizedCount>=total&&total>0){
+        batchCompleted=true;currentWork='Lote finalizado ✓';updateDashboard();
+        await clearBatchCheckpoint();
+        showReadyNotice(total);
+        if(isElectron())window.lucasDesktop.notifyComplete({total,previewReady:previewSongStates.filter(x=>x.status==='ready').length,finalized:finalizedCount,percent:100,current:'Lote finalizado ✓',completed:true})
+      }
+    }
+  }finally{
+    if(token===previewBatchToken){
+      autoFinalizeActive=false;processing=false;desktopProcessing(false);
+      $('cancelProcess').disabled=true;btn.disabled=false;btn.textContent='Reprocessar lote';updateDashboard()
+    }
+  }
+}
 function clearInsertionPreview(){const p=$('previewSongPlayer');p.pause();if(insertionPreviewUrl)URL.revokeObjectURL(insertionPreviewUrl);insertionPreviewUrl=null;insertionMixUrl=null;insertionPoint=null;insertionDuration=0;p.removeAttribute('src');p.load();$('entryMarker').style.left='0%'}
 function loadPreviewSong(index){clearInsertionPreview();const idx=Number(index),file=tracks()[idx];if(!file){$('entryPointResult').textContent='Selecione uma música para conferir.';return}if(!previewAuthorized){$('entryPointResult').textContent='Prévia ainda não iniciada. Volte em Músicas e clique em “OK — Preparar prévia”.';return}const prep=preparedPreviews[idx],state=previewSongStates[idx];if(!prep){$('entryPointResult').textContent=state&&state.status==='working'?'Esta música está sendo preparada agora…':'Esta música ainda está na fila automática de prévias.';return}const player=$('previewSongPlayer');insertionMixUrl=prep.url;insertionPoint=prep.point;insertionDuration=prep.duration;player.src=prep.url;player.load();$('entryMarker').style.left=Math.max(0,Math.min(100,prep.point/prep.duration*100))+'%';const confidence=prep.analysis?' • confiança '+prep.analysis.label+' ('+prep.analysis.confidence+'%)':' • modo manual';$('entryPointResult').textContent='PRÉVIA PRONTA em '+prep.elapsed.toFixed(1)+' s • na música, a vinheta entra em '+formatClock(prep.point)+' ('+prep.point.toFixed(1)+' s)'+confidence+' • neste player ela entra em '+prep.localT.toFixed(1)+' s e termina em '+prep.endInPreview.toFixed(1)+' s. Aperte Play para conferir.'}
 $('previewSongSelect').addEventListener('change',e=>{loadPreviewSong(e.target.value);renderPreviewQueue()});
