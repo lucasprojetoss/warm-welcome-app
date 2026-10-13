@@ -95,6 +95,19 @@ contextBridge.exposeInMainWorld('lucasDesktop', {
     return ipcRenderer.invoke('queue:remove', id);
   },
 
+  checkPortableUpdate() {
+    return ipcRenderer.invoke('portable:update-check');
+  },
+
+  installPortableUpdate() {
+    return ipcRenderer.invoke('portable:update-install');
+  },
+
+  onPortableUpdateProgress(callback) {
+    ipcRenderer.removeAllListeners('portable:update-progress');
+    ipcRenderer.on('portable:update-progress', (_event, payload) => callback(payload || {}));
+  },
+
   getDiagnostics() {
     return ipcRenderer.invoke('diagnostics:get');
   }
