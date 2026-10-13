@@ -400,8 +400,8 @@ function replaceMusicFileSafely(filePath, bytes) {
   const backup = filePath + '.lucas-backup';
 
   try {
-    if (fs.existsSync(temp)) fs.unlinkSync(temp);
-    if (fs.existsSync(backup)) fs.unlinkSync(backup);
+    if (fs.existsSync(temp)) retryFileOperation(() => fs.unlinkSync(temp), 'Limpeza de temporário de ' + label);
+    if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza de backup antigo de ' + label);
 
     fs.writeFileSync(temp, data);
     const written = fs.statSync(temp);
@@ -576,7 +576,10 @@ function saveDefaults(payload = {}) {
 
   if (payload.removeJingle) {
     const candidates = fs.readdirSync(root).filter(name => /^vinheta-padrao\./i.test(name));
-    for (const name of candidates) { try { fs.unlinkSync(path.join(root, name)); } catch (_) {} }
+    for (const name of candidates) {
+      const target = path.join(root, name);
+      retryFileOperation(() => fs.unlinkSync(target), 'Remoção da vinheta padrão');
+    }
     next.jingle = null;
   } else if (payload.jingle) {
     const data = incomingFileBuffer(payload.jingle);
@@ -586,8 +589,9 @@ function saveDefaults(payload = {}) {
       if (data.length < 128) throw new Error('A vinheta padrão está vazia ou inválida.');
       const finalStat = writePersistentFile(dest, data, 'vinheta padrão');
 
-      for (const name of fs.readdirSync(root).filter(name => /^vinheta-padrao\./i.test(name) && path.join(root, name) !== dest)) {
-        try { fs.unlinkSync(path.join(root, name)); } catch (_) {}
+      for (const name of fs.readdirSync(root).filter(name => /^vinheta-padrao\./i.test(name) && path.join(root, name) !== dest && path.join(root, name) !== dest + '.bak')) {
+        const stale = path.join(root, name);
+        try { retryFileOperation(() => fs.unlinkSync(stale), 'Limpeza de vinheta padrão antiga'); } catch (error) { log('Vinheta antiga não pôde ser removida:', stale, error.code || error.message); }
       }
       next.jingle = {
         path: dest,
@@ -601,7 +605,10 @@ function saveDefaults(payload = {}) {
 
   if (payload.removeCover) {
     const covers = fs.readdirSync(root).filter(name => /^capa-padrao\./i.test(name));
-    for (const name of covers) { try { fs.unlinkSync(path.join(root, name)); } catch (_) {} }
+    for (const name of covers) {
+      const target = path.join(root, name);
+      retryFileOperation(() => fs.unlinkSync(target), 'Remoção da capa padrão');
+    }
     next.cover = null;
   } else if (payload.cover) {
     const data = incomingFileBuffer(payload.cover);
@@ -611,8 +618,9 @@ function saveDefaults(payload = {}) {
       if (data.length < 32) throw new Error('A capa padrão está vazia ou inválida.');
       const finalStat = writePersistentFile(dest, data, 'capa padrão');
 
-      for (const name of fs.readdirSync(root).filter(name => /^capa-padrao\./i.test(name) && path.join(root, name) !== dest)) {
-        try { fs.unlinkSync(path.join(root, name)); } catch (_) {}
+      for (const name of fs.readdirSync(root).filter(name => /^capa-padrao\./i.test(name) && path.join(root, name) !== dest && path.join(root, name) !== dest + '.bak')) {
+        const stale = path.join(root, name);
+        try { retryFileOperation(() => fs.unlinkSync(stale), 'Limpeza de capa padrão antiga'); } catch (error) { log('Capa antiga não pôde ser removida:', stale, error.code || error.message); }
       }
 
       next.cover = {
