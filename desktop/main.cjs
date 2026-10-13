@@ -71,7 +71,8 @@ function safeJsonRead(file, fallback = null) {
     try {
       const recovered = JSON.parse(fs.readFileSync(backup, 'utf8'));
       try {
-        if (!fs.existsSync(file)) fs.copyFileSync(backup, file);
+        if (fs.existsSync(file)) retryFileOperation(() => fs.unlinkSync(file), 'Remoção de JSON corrompido');
+        fs.copyFileSync(backup, file);
       } catch (_) {}
       return recovered;
     } catch (_) {
@@ -93,9 +94,6 @@ function safeJsonWrite(file, value) {
     if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza de backup JSON');
     if (fs.existsSync(file)) retryFileOperation(() => fs.renameSync(file, backup), 'Backup de configuração');
     retryFileOperation(() => fs.renameSync(tmp, file), 'Gravação de configuração');
-    if (fs.existsSync(backup)) {
-      try { retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza final do backup JSON'); } catch (_) {}
-    }
   } catch (error) {
     try {
       if (!fs.existsSync(file) && fs.existsSync(backup)) retryFileOperation(() => fs.renameSync(backup, file), 'Restauração de configuração');
@@ -491,12 +489,26 @@ function writePersistentFile(dest, data, label) {
       throw error;
     }
 
-    if (fs.existsSync(backup)) {
-      try { retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza do backup de ' + label); } catch (_) {}
-    }
     return fs.statSync(dest);
   } finally {
     try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+  }
+}
+
+function recoverPersistentFile(filePath, minSize) {
+  if (!filePath) return false;
+  try {
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile() && fs.statSync(filePath).size >= minSize) return true;
+  } catch (_) {}
+
+  const backup = filePath + '.bak';
+  try {
+    if (!fs.existsSync(backup) || fs.statSync(backup).size < minSize) return false;
+    if (fs.existsSync(filePath)) retryFileOperation(() => fs.unlinkSync(filePath), 'Remoção de arquivo persistente inválido');
+    fs.copyFileSync(backup, filePath);
+    return fs.statSync(filePath).size >= minSize;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -624,7 +636,7 @@ function loadDefaults() {
   let repaired = false;
 
   try {
-    if (!jingle || !jingle.path || !fs.existsSync(jingle.path) || fs.statSync(jingle.path).size < 128) {
+    if (!jingle || !jingle.path || !recoverPersistentFile(jingle.path, 128)) {
       jingle = discoverDefaultJingle();
       config.jingle = jingle;
       repaired = true;
@@ -636,7 +648,7 @@ function loadDefaults() {
   }
 
   try {
-    if (!cover || !cover.path || !fs.existsSync(cover.path) || fs.statSync(cover.path).size < 32) {
+    if (!cover || !cover.path || !recoverPersistentFile(cover.path, 32)) {
       cover = discoverDefaultCover();
       config.cover = cover;
       repaired = true;
