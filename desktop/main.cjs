@@ -19,7 +19,7 @@ let selectedMusicRoot = null;
 let processingActive = false;
 let fitTimer = null;
 let currentProgress = {
-  version: '1.2.7',
+  version: '1.2.8',
   total: 0,
   previewReady: 0,
   finalized: 0,
