@@ -488,7 +488,9 @@ async function beginPortableUpdate(event) {
       });
     });
 
-    fs.writeFileSync(scriptPath, portableUpdaterScript(), 'utf8');
+    const updaterSource = path.join(__dirname, 'portable-updater.ps1');
+    if (!fs.existsSync(updaterSource)) throw new Error('Atualizador portatil externo nao foi encontrado.');
+    fs.copyFileSync(updaterSource, scriptPath);
 
     event.sender.send('portable:update-progress', {
       phase: 'ready',
