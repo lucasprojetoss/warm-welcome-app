@@ -729,20 +729,37 @@ async function beginCurrentBatch({fromQueue=false}={}){
     return false
   }finally{btn.disabled=!!activeBatchSettings;btn.textContent='OK — Iniciar lote'}
 }
+$('addQueueLot').addEventListener('click',async()=>{
+  try{
+    $('addQueueLot').disabled=true;
+    $('queueStatus').textContent='Salvando lote na fila...';
+    await addCurrentLotToQueue();
+    $('queueStatus').textContent='Lote adicionado. Selecione outra pasta para adicionar o próximo.';
+  }catch(e){
+    $('queueStatus').textContent='Não foi possível adicionar: '+e.message
+  }finally{
+    $('addQueueLot').disabled=false;
+    renderBatchQueue()
+  }
+});
+$('startQueue').addEventListener('click',()=>startBatchQueue());
+
 $('startBatch').addEventListener('click',()=>beginCurrentBatch());
 
-async function initDesktopUi()sync function initDesktopUi(){
+async function initDesktopUi(){
   if(!isElectron()){updatePreparePreviewButton();return}
   $('desktopFolderBox').hidden=false;
   $('profileBox').hidden=false;
   $('replaceToggleWrap').hidden=false;
   $('diagnosticBox').hidden=false;
+  $('batchQueueBox').hidden=false;
   $('browserTrackPicker').hidden=true;
   $('downloadZip').hidden=true;
   $('process').hidden=true;
   $('installApp').hidden=true;
   $('enableNotifications').hidden=true;
   await refreshProfiles();
+  await refreshBatchQueue();
   await checkResumeState();
   updateDashboard();
 }
