@@ -20,7 +20,7 @@ echo   ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs
 echo.
 
 set "DESTBASE="
-for /f "usebackq delims=" %%D in (`powershell -NoProfile -STA -Command "$s=New-Object -ComObject Shell.Application; $f=$s.BrowseForFolder(0,'Escolha o HD, pendrive ou pasta onde deseja criar o Lucas Gravacoes Portatil',0,0); if($f){$f.Self.Path}"`) do set "DESTBASE=%%D"
+for /f "usebackq delims=" %%D in ('powershell -NoProfile -STA -Command "$s=New-Object -ComObject Shell.Application; $f=$s.BrowseForFolder(0,'Escolha o HD, pendrive ou pasta onde deseja criar o Lucas Gravacoes Portatil',0,0); if($f){$f.Self.Path}"') do set "DESTBASE=%%D"
 
 if not defined DESTBASE (
   echo.
@@ -83,7 +83,7 @@ where npm >nul 2>nul
 if errorlevel 1 goto :node_missing
 
 cd /d "%TARGET%\desktop"
-call npm install --no-audit --no-fund
+call npm install --include=dev --no-audit --no-fund
 if errorlevel 1 (
   echo.
   echo Falha ao preparar o Electron no HD.
