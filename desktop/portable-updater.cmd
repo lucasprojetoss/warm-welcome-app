@@ -23,11 +23,11 @@ if %WAIT% GEQ 60 (
   call :fail O processo principal nao fechou a tempo.
   goto end
 )
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 goto wait_app
 
 :app_closed
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 call :log Processo principal encerrado.
 
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
