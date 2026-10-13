@@ -87,6 +87,32 @@ function batchStatePath() {
   return path.join(dataRoot(), 'lote-em-andamento.json');
 }
 
+function lastMusicFolderPath() {
+  return path.join(dataRoot(), 'ultima-pasta-musicas.json');
+}
+
+function loadLastMusicFolder() {
+  const saved = safeJsonRead(lastMusicFolderPath(), null);
+  const folder = saved && typeof saved.folder === 'string' ? saved.folder : '';
+  if (!folder) return null;
+  try {
+    const resolved = path.resolve(folder);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) return resolved;
+  } catch (_) {}
+  return null;
+}
+
+function saveLastMusicFolder(folder) {
+  try {
+    const resolved = path.resolve(String(folder || ''));
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+      safeJsonWrite(lastMusicFolderPath(), { folder: resolved, updatedAt: new Date().toISOString() });
+    }
+  } catch (error) {
+    log('Nao foi possivel salvar a ultima pasta de musicas:', error);
+  }
+}
+
 function safeJsonRead(file, fallback = null) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -1401,12 +1427,18 @@ ipcMain.handle('desktop:status', () => {
 });
 
 ipcMain.handle('music:select-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+  const rememberedFolder = selectedMusicRoot || loadLastMusicFolder();
+  const options = {
     title: 'Selecionar pasta de músicas',
     properties: ['openDirectory']
-  });
+  };
+  if (rememberedFolder) options.defaultPath = rememberedFolder;
+
+  const result = await dialog.showOpenDialog(mainWindow, options);
   if (result.canceled || !result.filePaths[0]) return null;
+
   selectedMusicRoot = path.resolve(result.filePaths[0]);
+  saveLastMusicFolder(selectedMusicRoot);
   return { folder: selectedMusicRoot, files: listMp3Files(selectedMusicRoot) };
 });
 
@@ -1414,6 +1446,7 @@ ipcMain.handle('music:load-folder', (_event, folder) => {
   const resolved = path.resolve(String(folder || ''));
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) throw new Error('Pasta não encontrada.');
   selectedMusicRoot = resolved;
+  saveLastMusicFolder(selectedMusicRoot);
   return { folder: selectedMusicRoot, files: listMp3Files(selectedMusicRoot) };
 });
 
