@@ -115,6 +115,11 @@ function renderBatchQueue(){
     main.append(title,folder,meta);
 
     const actions=document.createElement('div');actions.className='queueLotButtons';
+    if(lot.status==='error'||lot.status==='cancelled'){
+      const retry=document.createElement('button');retry.type='button';retry.textContent='Recolocar na fila';
+      retry.addEventListener('click',()=>retryQueueLot(lot.id));
+      actions.append(retry);
+    }
     if(lot.status!=='processing'){
       const remove=document.createElement('button');remove.type='button';remove.className='secondaryBtn';remove.textContent='Remover';
       remove.addEventListener('click',()=>removeQueueLotFromUi(lot.id));
@@ -126,7 +131,7 @@ function renderBatchQueue(){
   }
   const waiting=batchQueueLots.filter(l=>l.status==='waiting').length,processingNow=batchQueueLots.filter(l=>l.status==='processing').length,done=batchQueueLots.filter(l=>l.status==='completed').length;
   $('queueStatus').textContent=(queueRunning?'Fila automática ativa • ':'')+waiting+' aguardando • '+processingNow+' processando • '+done+' concluído'+(done===1?'':'s');
-  $('startQueue').disabled=queueRunning||!batchQueueLots.some(l=>l.status==='waiting')
+  $('startQueue').disabled=queueRunning||!batchQueueLots.some(l=>l.status==='waiting');$('addQueueLot').disabled=queueRunning
 }
 async function refreshBatchQueue(){
   if(!isElectron())return;
@@ -144,6 +149,14 @@ async function persistQueueLotProgress(id,patch){
     const idx=batchQueueLots.findIndex(x=>x.id===id);if(idx>=0)batchQueueLots[idx]=updated;
     renderBatchQueue()
   }catch(e){console.error('Fila:',e)}
+}
+async function retryQueueLot(id){
+  if(queueRunning)return;
+  try{
+    const updated=await window.lucasDesktop.updateQueueLot(id,{status:'waiting',error:''});
+    const idx=batchQueueLots.findIndex(x=>x.id===id);if(idx>=0)batchQueueLots[idx]=updated;
+    renderBatchQueue()
+  }catch(e){$('queueStatus').textContent='Não foi possível recolocar o lote: '+e.message}
 }
 async function removeQueueLotFromUi(id){
   if(queueRunning&&id===currentQueueLotId)return;
@@ -409,7 +422,7 @@ async function refreshProfiles(){if(!isElectron())return;try{const profiles=awai
 async function saveCurrentProfile(){if(!isElectron())return;const name=$('profileName').value.trim();if(!name)throw Error('Digite um nome para o perfil.');const j=activeJingle(),selectedCover=$('defaultCover').files&&$('defaultCover').files[0],cover=selectedCover?{blob:selectedCover,name:selectedCover.name,type:selectedCover.type}:defaultMetadata.cover;const config=currentSettingsSnapshot();config.metadata={artist:$('defaultArtist').value.trim(),composer:$('defaultComposer').value.trim(),album:$('defaultAlbum').value.trim()};const payload={name,config};if(j)payload.jingle=await blobPayload(j,j.name,j.type);if(cover?.blob)payload.cover=await blobPayload(cover.blob,cover.name,cover.type);await window.lucasDesktop.saveProfile(payload);await refreshProfiles();$('profileStatus').textContent='Perfil salvo.'}
 async function applySelectedProfile(){if(!isElectron())return;const id=$('profileSelect').value;if(!id)return;const p=await window.lucasDesktop.loadProfile(id);applySettingsSnapshot(p);$('jingle').value='';defaultJingleFile=p.jingleData?.base64?new File([base64ToBytes(p.jingleData.base64)],p.jingleData.name||'vinheta.mp3',{type:p.jingleData.type||'audio/mpeg'}):null;if(p.coverData?.base64){const blob=new Blob([base64ToBytes(p.coverData.base64)],{type:p.coverData.type||'image/jpeg'});defaultMetadata.cover={blob,name:p.coverData.name||'capa.jpg',type:p.coverData.type||'image/jpeg'}}else defaultMetadata.cover=null;renderDefaultMetadata();updateDefaultJingleStatus();await persistDesktopDefaults({jingle:defaultJingleFile,cover:defaultMetadata.cover,removeJingle:!defaultJingleFile,removeCover:!defaultMetadata.cover});$('profileStatus').textContent='Perfil aplicado: '+p.name;updatePreparePreviewButton()}
 async function refreshDiagnostics(){if(!isElectron())return;try{const d=await window.lucasDesktop.getDiagnostics();const mem=d.memory?Math.round((d.memory.rss||0)/1024/1024)+' MB':'—';$('diagnosticText').textContent=['Versão: v'+d.version,'Electron: '+d.electron,'Node: '+d.node,'Monitor: '+(d.monitor?d.monitor.width+'×'+d.monitor.height+' @ '+d.monitor.scaleFactor:'—'),'Zoom: '+Math.round((d.zoomFactor||1)*100)+'%','Segundo plano protegido: '+(d.processingProtected?'SIM':'NÃO'),'Duck do áudio do Windows: '+(d.systemAudioDuck?'ATIVO':'INDISPONÍVEL'),'Memória do motor: '+mem,'Pasta de músicas: '+(d.selectedFolder||'nenhuma'),'Pasta de dados: '+d.dataFolder,'','Últimos registros:',d.logTail||'Sem erros registrados.'].join('\n')}catch(e){$('diagnosticText').textContent='Falha no diagnóstico: '+e.message}}
-async function checkResumeState(){if(!isElectron())return;try{const st=await window.lucasDesktop.loadBatchState();if(st&&st.folder&&Array.isArray(st.files)&&st.files.length){resumeState=st;$('resumeBox').hidden=false;$('resumeInfo').textContent=(st.completed?.length||0)+' de '+st.files.length+' já finalizadas • '+st.folder}else $('resumeBox').hidden=true}catch(e){}}
+async function checkResumeState(){if(!isElectron())return;try{const st=await window.lucasDesktop.loadBatchState();if(st&&st.folder&&Array.isArray(st.files)&&st.files.length){const belongsToQueue=batchQueueLots.some(l=>l.folder===st.folder&&['waiting','processing','error','cancelled'].includes(l.status));if(belongsToQueue){resumeState=null;$('resumeBox').hidden=true;return}resumeState=st;$('resumeBox').hidden=false;$('resumeInfo').textContent=(st.completed?.length||0)+' de '+st.files.length+' já finalizadas • '+st.folder}else $('resumeBox').hidden=true}catch(e){}}
 function clearFinalOutputs(){for(const e of previewEntries){if(e.processedUrl)URL.revokeObjectURL(e.processedUrl)}previewEntries=[];exportedFiles=[];$('compareSong').replaceChildren();$('results').replaceChildren();$('previewArea').hidden=true;$('downloadZip').disabled=true;const total=currentBatchTotal(),pct=total?Math.round(finalizedCount/total*100):0;$('batchProgress').value=pct;$('progressLabel').textContent=pct+'%';buildFinalQueue()}
 async function finalizePreparedSong(job,jingle,files){
   const {i,file,music,point}=job;
