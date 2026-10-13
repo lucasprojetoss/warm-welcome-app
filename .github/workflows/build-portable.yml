@@ -24,22 +24,53 @@ jobs:
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
 
       - name: Instalar dependencias do desktop
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location "$env:GITHUB_WORKSPACE\desktop"
-          npm install --no-audit --no-fund
 
-          if (!(Test-Path ".\node_modules\electron\dist\electron.exe")) {
-            throw "Electron nao foi instalado corretamente."
+          npm install --include=dev --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) {
+            throw "npm install falhou."
+          }
+
+          $package = Get-Content ".\package.json" -Raw | ConvertFrom-Json
+          $electronVersion = [string]$package.devDependencies.electron
+          $electronVersion = $electronVersion.TrimStart('^','~','>','=','<',' ')
+          $electronPackage = ".\node_modules\electron"
+          $electronExe = Join-Path $electronPackage "dist\electron.exe"
+
+          if (!(Test-Path $electronExe) -and (Test-Path (Join-Path $electronPackage "install.js"))) {
+            Write-Host "Executando instalador oficial do pacote Electron..."
+            node (Join-Path $electronPackage "install.js")
+          }
+
+          if (!(Test-Path $electronExe)) {
+            Write-Host "Runtime Electron ainda ausente. Baixando diretamente do release oficial..."
+            $electronZip = Join-Path $env:RUNNER_TEMP "electron-win32-x64.zip"
+            $electronUrl = "https://github.com/electron/electron/releases/download/v$electronVersion/electron-v$electronVersion-win32-x64.zip"
+            if (Test-Path $electronZip) { Remove-Item $electronZip -Force }
+            $dist = Join-Path $electronPackage "dist"
+            if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+            New-Item -ItemType Directory -Path $dist -Force | Out-Null
+
+            Invoke-WebRequest -Uri $electronUrl -OutFile $electronZip -UseBasicParsing
+            Expand-Archive -LiteralPath $electronZip -DestinationPath $dist -Force
+            Set-Content -LiteralPath (Join-Path $electronPackage "path.txt") -Value "electron.exe" -NoNewline -Encoding ascii
+          }
+
+          if (!(Test-Path $electronExe)) {
+            throw "Electron nao foi preparado corretamente."
           }
 
           if (!(Test-Path ".\node_modules\lamejs\lame.min.js")) {
             throw "lamejs nao foi instalado corretamente."
           }
+
+          Write-Host "Electron pronto:" $electronExe
 
       - name: Montar pacote portatil
         shell: pwsh
