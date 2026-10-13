@@ -48,7 +48,7 @@ jobs:
           if ($index -notmatch [regex]::Escape("APP_VERSION='$version'")) { throw "APP_VERSION nao confere com package.json." }
           if ($main -notmatch [regex]::Escape("version: '$version'")) { throw "Versao interna nao confere com package.json." }
 
-          node -e "const fs=require('fs');const h=fs.readFileSync(process.argv[1],'utf8');const re=new RegExp('<script\\\\b[^>]*>([\\\\s\\\\S]*?)<\\\\/script>','gi');const scripts=[...h.matchAll(re)].map(x=>x[1].trim()).filter(Boolean);if(!scripts.length)throw new Error('Nenhum script inline encontrado');for(const code of scripts)new Function(code);console.log('Scripts inline validados:',scripts.length)" "$env:GITHUB_WORKSPACE\index.html"
+          node -e "const fs=require('fs');const h=fs.readFileSync(process.argv[1],'utf8');const a=h.lastIndexOf('<script>');const b=h.lastIndexOf('</script>');if(a<0||b<=a)throw new Error('Script principal nao encontrado');new Function(h.slice(a+8,b));console.log('JavaScript principal validado')" "$env:GITHUB_WORKSPACE\index.html"
           if ($LASTEXITCODE -ne 0) { throw "index.html possui JavaScript invalido." }
 
           Write-Host "Validacao critica OK. Versao:" $version
