@@ -70,7 +70,7 @@ async function syncDesktopInfo(){const badge=$('appVersion');if(!badge)return;ba
 syncDesktopInfo();
 let lastPreviewUrl=null,originalPreviewUrl=null,previewEntries=[],exportedFiles=[],cancelRequested=false,processing=false;
 let insertionPreviewUrl=null,insertionMixUrl=null,insertionPoint=null,insertionDuration=0;let lastAutoAnalysis=null;let defaultJingleFile=null;let previewSongStates=[];let previewAuthorized=false;let preparedPreviews=[];let previewBatchToken=0;let previewPreparing=false;let autoFinalizeQueue=[],pipelineResolvers=[],previewProductionDone=false,autoFinalizeActive=false;
-let desktopTracks=[],desktopFolder=null,replaceOriginals=true,resumeState=null,resumedCompletedPaths=[],batchOriginalTotal=0,finalizedCount=0,currentWork='Aguardando',batchCompleted=false;
+let desktopTracks=[],desktopFolder=null,replaceOriginals=true,resumeState=null,resumedCompletedPaths=[],batchOriginalTotal=0,finalizedCount=0,currentWork='Aguardando',batchCompleted=false,activeBatchSettings=null;
 const isElectron=()=>!!(window.lucasDesktop&&window.lucasDesktop.isElectron);
 const activeJingle=()=>($('jingle').files&&$('jingle').files[0])||defaultJingleFile;
 const tracks=()=>desktopTracks.length?desktopTracks:Array.from($('tracks').files).slice(0,100);
@@ -78,8 +78,8 @@ const AUTO_DUCK_DB=-4,AUTO_JINGLE_GAIN=1;
 let insertionMode=localStorage.getItem('lucas_insertion_mode')==='manual'?'manual':'auto';
 let manualInsertTime=Math.max(0,Number(localStorage.getItem('lucas_manual_insert_time')||30));
 let manualDuckDb=Math.max(-12,Math.min(0,Number(localStorage.getItem('lucas_manual_duck_db')||-4)));
-function currentDuckDb(){return insertionMode==='manual'?manualDuckDb:AUTO_DUCK_DB}
-async function chooseInsertionPoint(music,jingle){lastAutoAnalysis=null;if(insertionMode==='manual'){const t=manualInsertTime;return Number.isFinite(t)?t:NaN}try{const result=await analyzeInBackgroundWorker(music,jingle.duration);lastAutoAnalysis=result.analysis||null;return result.point}catch(e){if($('previewBatchStatus'))$('previewBatchStatus').textContent='Analisador Worker indisponível; usando modo compatibilidade.';return await detect(music,jingle.duration)}}
+function currentDuckDb(){if(activeBatchSettings&&Number.isFinite(activeBatchSettings.duckDb))return activeBatchSettings.duckDb;return insertionMode==='manual'?manualDuckDb:AUTO_DUCK_DB}
+async function chooseInsertionPoint(music,jingle){lastAutoAnalysis=null;const mode=activeBatchSettings?.insertionMode||insertionMode,manualTime=activeBatchSettings&&Number.isFinite(activeBatchSettings.manualInsertTime)?activeBatchSettings.manualInsertTime:manualInsertTime;if(mode==='manual')return Number.isFinite(manualTime)?manualTime:NaN;try{const result=await analyzeInBackgroundWorker(music,jingle.duration);lastAutoAnalysis=result.analysis||null;return result.point}catch(e){if($('previewBatchStatus'))$('previewBatchStatus').textContent='Analisador Worker indisponível; usando modo compatibilidade.';return await detect(music,jingle.duration)}}
 
 function makeDesktopFile(meta){
   const size=Number(meta.size)||0,sourcePath=meta.path;
@@ -125,15 +125,21 @@ function openSettingsDb(){return new Promise((resolve,reject)=>{const r=indexedD
 async function saveDefaultMetadataSettings(){
   const coverFile=$('defaultCover').files&&$('defaultCover').files[0];
   if(coverFile&&(!['image/jpeg','image/png'].includes(coverFile.type)||coverFile.size>10*1024*1024))throw Error('A capa deve ser JPG ou PNG de até 10 MB.');
-  const db=await openSettingsDb(),currentCover=coverFile?{blob:coverFile,name:coverFile.name,type:coverFile.type}:defaultMetadata.cover;
+  const currentCover=coverFile?{blob:coverFile,name:coverFile.name,type:coverFile.type}:defaultMetadata.cover;
   const data={artist:$('defaultArtist').value.trim(),composer:$('defaultComposer').value.trim(),album:$('defaultAlbum').value.trim(),cover:currentCover};
-  await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(data,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();
   defaultMetadata=data;
-  await persistDesktopDefaults(coverFile?{cover:{blob:coverFile,name:coverFile.name,type:coverFile.type}}:{});
+
+  if(isElectron()){
+    await persistDesktopDefaults(coverFile?{cover:{blob:coverFile,name:coverFile.name,type:coverFile.type}}:{});
+  }else{
+    const db=await openSettingsDb();
+    await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(data,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();
+  }
+
   $('defaultCover').value='';renderDefaultMetadata();$('defaultMetadataStatus').textContent='Padrão salvo permanentemente e será aplicado aos próximos MP3.'
 }
-async function loadDefaultMetadataSettings(){try{const db=await openSettingsDb(),data=await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readonly'),r=tx.objectStore(JINGLE_STORE).get(META_KEY);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error)});db.close();if(data)defaultMetadata={artist:data.artist||'',composer:data.composer||'',album:data.album||'',cover:data.cover||null}}catch(e){}renderDefaultMetadata()}
-async function persistDefaultMetadata(){const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(defaultMetadata,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();if(isElectron())await persistDesktopDefaults({removeCover:!defaultMetadata.cover})}
+async function loadDefaultMetadataSettings(){if(isElectron()){renderDefaultMetadata();return}try{const db=await openSettingsDb(),data=await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readonly'),r=tx.objectStore(JINGLE_STORE).get(META_KEY);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error)});db.close();if(data)defaultMetadata={artist:data.artist||'',composer:data.composer||'',album:data.album||'',cover:data.cover||null}}catch(e){}renderDefaultMetadata()}
+async function persistDefaultMetadata(){if(isElectron()){await persistDesktopDefaults({removeCover:!defaultMetadata.cover});return}const db=await openSettingsDb();await new Promise((resolve,reject)=>{const tx=db.transaction(JINGLE_STORE,'readwrite');tx.objectStore(JINGLE_STORE).put(defaultMetadata,META_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}
 function renderDefaultMetadata(){$('defaultArtist').value=defaultMetadata.artist||'';$('defaultComposer').value=defaultMetadata.composer||'';$('defaultAlbum').value=defaultMetadata.album||'';const box=$('defaultCoverPreview');box.replaceChildren();if(defaultMetadata.cover&&defaultMetadata.cover.blob){const url=URL.createObjectURL(defaultMetadata.cover.blob),img=document.createElement('img');img.src=url;img.alt='Capa padrão';img.style.cssText='width:150px;height:150px;object-fit:cover;border-radius:10px;border:1px solid #46534e';img.onload=()=>URL.revokeObjectURL(url);box.append(img)}else box.textContent='Nenhuma capa padrão salva.';$('defaultMetadataStatus').textContent=(defaultMetadata.artist||defaultMetadata.composer||defaultMetadata.album||defaultMetadata.cover)?'Padrão carregado e ativo.':'Nenhum metadado padrão salvo ainda.';$('removeDefaultCover').disabled=!defaultMetadata.cover}
 $('saveDefaultMetadata').addEventListener('click',async()=>{try{$('saveDefaultMetadata').disabled=true;$('defaultMetadataStatus').textContent='Salvando padrão...';await saveDefaultMetadataSettings()}catch(e){$('defaultMetadataStatus').textContent='Não foi possível salvar: '+e.message}finally{$('saveDefaultMetadata').disabled=false}});
 $('removeDefaultCover').addEventListener('click',async()=>{defaultMetadata.cover=null;await persistDefaultMetadata();renderDefaultMetadata();$('defaultMetadataStatus').textContent='Capa padrão removida.'});
@@ -214,6 +220,8 @@ function renderPreviewQueue(){const box=$('previewQueueList');if(!box)return;box
 function buildFinalQueue(){const box=$('finalQueue');box.replaceChildren();tracks().forEach((file,i)=>{const row=document.createElement('div');row.className='finalSongRow';row.dataset.index=String(i);const head=document.createElement('div');head.className='finalSongHead';const name=document.createElement('strong');name.textContent=file.name;name.title=file.name;const state=document.createElement('span');state.className='finalSongState';state.textContent='Aguardando';const p=document.createElement('progress');p.max=100;p.value=0;p.style.width='100%';p.style.height='10px';head.append(name,state);row.append(head,p);box.append(row)})}
 function setFinalSongProgress(index,value,label,stateClass){const row=$('finalQueue').querySelector('[data-index="'+index+'"]');if(!row)return;const p=row.querySelector('progress'),state=row.querySelector('.finalSongState');p.value=Math.max(0,Math.min(100,value));state.textContent=label;if(value>0&&value<100)currentWork='Finalizando: '+(tracks()[index]?.name||'música');if(stateClass){row.classList.remove('done','error');row.classList.add(stateClass)}updateDashboard()}
 
+function setBatchUiLocked(locked){['tracks','jingle','selectMusicFolder','insertionModeToggle','manualInsertTime','manualDuckDb','replaceOriginals','applyProfile','profileSelect','profileName','saveProfile','saveDefaultJingle','removeDefaultJingle','saveDefaultMetadata','removeDefaultCover','defaultArtist','defaultComposer','defaultAlbum','defaultCover'].forEach(id=>{const el=$(id);if(el)el.disabled=!!locked})}
+function captureBatchSettings(){return {insertionMode,manualInsertTime,duckDb:insertionMode==='manual'?manualDuckDb:AUTO_DUCK_DB,replaceOriginals,metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||'',cover:defaultMetadata.cover?{...defaultMetadata.cover}:null}}}
 function currentSettingsSnapshot(){return {insertionMode,manualInsertTime,manualDuckDb,replaceOriginals,metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||''}}}
 async function saveBatchCheckpoint(){if(!isElectron()||!desktopFolder)return;const allFiles=resumeState&&Array.isArray(resumeState.files)?resumeState.files:tracks().map(f=>f.sourcePath).filter(Boolean);resumeState={version:1,folder:desktopFolder,files:allFiles,completed:[...resumedCompletedPaths],settings:currentSettingsSnapshot(),updatedAt:new Date().toISOString()};await window.lucasDesktop.saveBatchState(resumeState)}
 async function markBatchFileCompleted(file){if(!isElectron()||!file?.sourcePath)return;if(!resumedCompletedPaths.includes(file.sourcePath))resumedCompletedPaths.push(file.sourcePath);await saveBatchCheckpoint()}
@@ -479,8 +487,6 @@ $('preparePreview').addEventListener('click',async()=>{
   if(!jingle){$('preparePreviewStatus').textContent='Escolha uma vinheta ou use a vinheta padrão.';return}
   try{
     btn.disabled=true;
-    const selected=$('jingle').files&&$('jingle').files[0];
-    if(selected)await saveDefaultJingleFile(selected);
     await persistDesktopDefaults();
     $('preparePreviewStatus').textContent='Configuração pronta. Confira os metadados.';
     showWizardStep(2)
