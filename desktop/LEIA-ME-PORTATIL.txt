@@ -1,0 +1,31 @@
+LUCAS GRAVACOES - MODO PORTATIL
+
+O modo portatil foi feito para HD externo, SSD externo e pendrive.
+
+COMO PREPARAR:
+1. No computador onde Node.js e npm ja estao instalados, execute:
+   PREPARAR-LUCAS-GRAVACOES-PORTATIL.bat
+2. Escolha o HD, SSD, pendrive ou uma pasta dentro dele.
+3. Aguarde o preparador copiar o sistema e instalar o Electron no proprio disco.
+4. Sera criada a pasta LucasGravacoes-Portable.
+
+COMO ABRIR DEPOIS:
+- Dentro de LucasGravacoes-Portable, dê dois cliques em:
+  ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs
+
+PORTABILIDADE:
+- Depois de preparado, o sistema abre usando o Electron do proprio HD.
+- Node.js nao e necessario apenas para abrir a copia ja preparada.
+- Se o Windows mudar a letra do HD de D: para E: ou F:, os caminhos das musicas
+  que estiverem nesse mesmo HD sao reconstruidos automaticamente.
+- Vinheta padrao, capa, perfis, fila e retomadas ficam em:
+  LucasGravacoes-Dados
+
+ATUALIZACOES:
+- Se o computador tiver Git e a copia tiver sido criada como repositorio Git,
+  o launcher tenta atualizar antes de abrir.
+- Sem Git ou sem internet, ele abre a versao que ja esta no HD.
+
+IMPORTANTE:
+- Nao remova o HD enquanto houver lote processando ou salvando.
+- Espere o lote terminar e feche o Lucas Gravacoes antes de ejetar o disco.
