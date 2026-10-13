@@ -49,6 +49,11 @@ jobs:
           $buildRoot = Join-Path $env:RUNNER_TEMP 'LucasGravacoesPortableBuild'
           $portableRoot = Join-Path $buildRoot 'LucasGravacoes-Portable'
           $zip = Join-Path $env:RUNNER_TEMP 'LucasGravacoes-Portable.zip'
+          $package = Get-Content "$env:GITHUB_WORKSPACE\desktop\package.json" -Raw | ConvertFrom-Json
+          $version = [string]$package.version
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Versao do pacote nao encontrada."
+          }
 
           if (Test-Path $buildRoot) {
             Remove-Item $buildRoot -Recurse -Force
@@ -79,6 +84,7 @@ jobs:
           }
 
           "PORTABLE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PORTABLE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Publicar pacote portable-latest
         shell: pwsh
@@ -89,18 +95,19 @@ jobs:
 
           gh release view portable-latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create portable-latest --title "Lucas Gravacoes Portable - Latest" --notes "Pacote automatico usado pelo botao Atualizar portatil." --latest=false --target "$env:GITHUB_SHA"
+            gh release create portable-latest --title "Lucas Gravacoes Portable - Preparando" --notes "Pacote portatil em preparacao." --latest=false --target "$env:GITHUB_SHA"
             if ($LASTEXITCODE -ne 0) {
               throw "Nao foi possivel criar a release portable-latest."
-            }
-          } else {
-            gh release edit portable-latest --title "Lucas Gravacoes Portable - Latest" --notes "Pacote automatico usado pelo botao Atualizar portatil." --latest=false
-            if ($LASTEXITCODE -ne 0) {
-              throw "Nao foi possivel atualizar a release portable-latest."
             }
           }
 
           gh release upload portable-latest "$env:PORTABLE_ZIP#LucasGravacoes-Portable.zip" --clobber
           if ($LASTEXITCODE -ne 0) {
             throw "Nao foi possivel publicar LucasGravacoes-Portable.zip."
+          }
+
+          $notes = "version=$env:PORTABLE_VERSION`nPacote automatico usado pelo botao Atualizar portatil."
+          gh release edit portable-latest --title "Lucas Gravacoes Portable v$env:PORTABLE_VERSION" --notes "$notes" --latest=false
+          if ($LASTEXITCODE -ne 0) {
+            throw "Pacote enviado, mas nao foi possivel atualizar os metadados da release."
           }
