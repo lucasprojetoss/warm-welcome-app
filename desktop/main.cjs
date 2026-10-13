@@ -3,6 +3,17 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
+const portableMode = process.env.LUCAS_PORTABLE_MODE === '1';
+const portableRoot = portableMode
+  ? path.resolve(process.env.LUCAS_PORTABLE_ROOT || path.resolve(__dirname, '..'))
+  : null;
+const portableDriveRoot = portableMode ? path.parse(portableRoot).root : null;
+if (portableMode) {
+  const portableUserData = path.join(portableRoot, 'LucasGravacoes-Dados');
+  fs.mkdirSync(portableUserData, { recursive: true });
+  app.setPath('userData', portableUserData);
+}
+
 let loudness = null;
 try { loudness = require('loudness'); } catch (_) {}
 
@@ -30,7 +41,9 @@ let currentProgress = {
 
 const LOCAL_PORT = 47831;
 const appRoot = path.resolve(__dirname, '..');
-const logFile = path.join(__dirname, 'desktop-runtime.log');
+const logFile = portableMode
+  ? path.join(app.getPath('userData'), 'desktop-runtime.log')
+  : path.join(__dirname, 'desktop-runtime.log');
 
 function log(...parts) {
   const line = '[' + new Date().toISOString() + '] ' + parts.map(x => {
@@ -132,6 +145,36 @@ function isInside(root, target) {
   const t = path.resolve(target);
   const rel = path.relative(r, t);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+const PORTABLE_DRIVE_PREFIX = 'portable-drive://';
+
+function toStoredPath(value) {
+  if (!value) return value;
+  const resolved = path.resolve(String(value));
+  if (!portableMode || !portableDriveRoot) return resolved;
+  const drive = path.parse(resolved).root;
+  if (drive.toLowerCase() !== portableDriveRoot.toLowerCase()) return resolved;
+  const rel = path.relative(portableDriveRoot, resolved).replace(/\\/g, '/');
+  return PORTABLE_DRIVE_PREFIX + rel;
+}
+
+function fromStoredPath(value) {
+  if (!value) return value;
+  const raw = String(value);
+  if (!portableMode || !raw.startsWith(PORTABLE_DRIVE_PREFIX)) return path.resolve(raw);
+  const rel = raw.slice(PORTABLE_DRIVE_PREFIX.length).replace(/\//g, path.sep);
+  const resolved = path.resolve(portableDriveRoot, rel);
+  if (!isInside(portableDriveRoot, resolved)) throw new Error('Caminho portátil inválido.');
+  return resolved;
+}
+
+function storedPathList(values) {
+  return Array.isArray(values) ? values.map(toStoredPath) : [];
+}
+
+function resolvedPathList(values) {
+  return Array.isArray(values) ? values.map(fromStoredPath) : [];
 }
 
 function mimeFor(file) {
@@ -406,8 +449,8 @@ function replaceMusicFileSafely(filePath, bytes) {
   const backup = filePath + '.lucas-backup';
 
   try {
-    if (fs.existsSync(temp)) retryFileOperation(() => fs.unlinkSync(temp), 'Limpeza de temporário de ' + label);
-    if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza de backup antigo de ' + label);
+    if (fs.existsSync(temp)) retryFileOperation(() => fs.unlinkSync(temp), 'Limpeza do MP3 temporário');
+    if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza do backup antigo do MP3');
 
     fs.writeFileSync(temp, data);
     const written = fs.statSync(temp);
