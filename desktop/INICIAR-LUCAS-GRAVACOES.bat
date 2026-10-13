@@ -37,7 +37,7 @@ if "%NEED_INSTALL%"=="0" (
 
 if "%NEED_INSTALL%"=="1" (
   echo %date% %time% - Atualizando Electron>>"%LOG%"
-  call npm install --no-audit --no-fund --prefer-offline >>"%LOG%" 2>&1
+  call npm install --include=dev --no-audit --no-fund --prefer-offline >>"%LOG%" 2>&1
   if errorlevel 1 (
     echo %date% %time% - ERRO ao atualizar Electron>>"%LOG%"
     exit /b 1
