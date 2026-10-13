@@ -75,6 +75,26 @@ contextBridge.exposeInMainWorld('lucasDesktop', {
     return ipcRenderer.invoke('batch:clear');
   },
 
+  listQueueLots() {
+    return ipcRenderer.invoke('queue:list');
+  },
+
+  addQueueLot(payload) {
+    return ipcRenderer.invoke('queue:add', payload || {});
+  },
+
+  loadQueueLot(id) {
+    return ipcRenderer.invoke('queue:load', id);
+  },
+
+  updateQueueLot(id, patch) {
+    return ipcRenderer.invoke('queue:update', id, patch || {});
+  },
+
+  removeQueueLot(id) {
+    return ipcRenderer.invoke('queue:remove', id);
+  },
+
   getDiagnostics() {
     return ipcRenderer.invoke('diagnostics:get');
   }
