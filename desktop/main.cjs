@@ -488,9 +488,10 @@ async function beginPortableUpdate(event) {
       });
     });
 
-    const updaterSource = path.join(__dirname, 'portable-updater.ps1');
-    if (!fs.existsSync(updaterSource)) throw new Error('Atualizador portatil externo nao foi encontrado.');
-    fs.copyFileSync(updaterSource, scriptPath);
+    const updaterSource = path.join(__dirname, 'portable-updater.cmd');
+    if (!fs.existsSync(updaterSource)) throw new Error('Atualizador portatil CMD nao foi encontrado.');
+    const cmdPath = scriptPath.replace(/\.ps1$/i, '.cmd');
+    fs.copyFileSync(updaterSource, cmdPath);
 
     event.sender.send('portable:update-progress', {
       phase: 'ready',
@@ -498,14 +499,15 @@ async function beginPortableUpdate(event) {
       message: 'Download concluído. Reiniciando para aplicar...'
     });
 
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-ExecutionPolicy', 'Bypass',
-      '-File', scriptPath,
-      '-Zip', downloaded.path,
-      '-Root', portableRoot,
-      '-Token', token,
-      '-AppPid', String(process.pid)
+    const child = spawn('cmd.exe', [
+      '/d',
+      '/s',
+      '/c',
+      '"' + cmdPath + '"',
+      downloaded.path,
+      portableRoot,
+      token,
+      String(process.pid)
     ], {
       cwd: app.getPath('temp'),
       detached: true,
@@ -521,6 +523,10 @@ async function beginPortableUpdate(event) {
     try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (_) {}
     try { if (fs.existsSync(zipPath + '.part')) fs.unlinkSync(zipPath + '.part'); } catch (_) {}
     try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (_) {}
+    try {
+      const cmdPath = scriptPath.replace(/\.ps1$/i, '.cmd');
+      if (fs.existsSync(cmdPath)) fs.unlinkSync(cmdPath);
+    } catch (_) {}
     throw error;
   } finally {
     portableUpdateActive = false;
