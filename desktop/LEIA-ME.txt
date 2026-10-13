@@ -21,3 +21,10 @@ FILA AUTOMATICA:
 - Cada lote guarda pasta, vinheta, metadados, capa e configuracao.
 - O sistema processa um lote por vez e inicia o proximo automaticamente.
 - Se houver interrupcao, as musicas ja concluidas ficam registradas para retomada.
+
+MODO PORTATIL:
+- Para instalar em HD, SSD externo ou pendrive, execute na pasta principal:
+  PREPARAR-LUCAS-GRAVACOES-PORTATIL.bat
+- O modo portatil guarda programa, dados, vinheta, perfis, fila e retomadas no proprio disco.
+- Depois de preparado, abra pelo arquivo ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs dentro da pasta portatil.
+- O modo instalado normal continua funcionando separadamente no computador.
