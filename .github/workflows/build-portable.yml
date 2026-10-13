@@ -48,24 +48,7 @@ jobs:
           if ($index -notmatch [regex]::Escape("APP_VERSION='$version'")) { throw "APP_VERSION nao confere com package.json." }
           if ($main -notmatch [regex]::Escape("version: '$version'")) { throw "Versao interna nao confere com package.json." }
 
-          $checker = Join-Path $env:RUNNER_TEMP 'check-index-inline.cjs'
-          @'
-const fs = require('fs');
-const html = fs.readFileSync(process.argv[2], 'utf8');
-const re = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
-let match;
-let checked = 0;
-while ((match = re.exec(html))) {
-  const code = match[1].trim();
-  if (!code) continue;
-  new Function(code);
-  checked++;
-}
-if (!checked) throw new Error('Nenhum script inline foi encontrado para validar.');
-console.log('Scripts inline validados:', checked);
-'@ | Set-Content -LiteralPath $checker -Encoding UTF8
-
-          node $checker "$env:GITHUB_WORKSPACE\index.html"
+          node -e "const fs=require('fs');const h=fs.readFileSync(process.argv[1],'utf8');const scripts=[...h.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)].map(x=>x[1].trim()).filter(Boolean);if(!scripts.length)throw new Error('Nenhum script inline encontrado');for(const code of scripts)new Function(code);console.log('Scripts inline validados:',scripts.length)" "$env:GITHUB_WORKSPACE\index.html"
           if ($LASTEXITCODE -ne 0) { throw "index.html possui JavaScript invalido." }
 
           Write-Host "Validacao critica OK. Versao:" $version
