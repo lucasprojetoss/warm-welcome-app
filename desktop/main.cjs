@@ -532,8 +532,8 @@ function writePersistentFile(dest, data, label) {
   const backup = dest + '.bak';
 
   try {
-    if (fs.existsSync(temp)) fs.unlinkSync(temp);
-    if (fs.existsSync(backup)) fs.unlinkSync(backup);
+    if (fs.existsSync(temp)) retryFileOperation(() => fs.unlinkSync(temp), 'Limpeza de temporário de ' + label);
+    if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza de backup antigo de ' + label);
 
     fs.writeFileSync(temp, data);
     const written = fs.statSync(temp);
@@ -1232,7 +1232,10 @@ ipcMain.handle('batch:save', (_event, state) => {
   return true;
 });
 ipcMain.handle('batch:clear', () => {
-  try { if (fs.existsSync(batchStatePath())) fs.unlinkSync(batchStatePath()); } catch (_) {}
+  const file = batchStatePath();
+  for (const target of [file, file + '.bak', file + '.tmp']) {
+    try { if (fs.existsSync(target)) retryFileOperation(() => fs.unlinkSync(target), 'Limpeza do checkpoint'); } catch (error) { log('Checkpoint não pôde ser removido:', target, error); }
+  }
   return true;
 });
 
