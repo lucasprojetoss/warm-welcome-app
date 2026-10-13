@@ -27,3 +27,7 @@ Vinheta padrão, metadados, capa, perfis e estado de retomada ficam na pasta de 
 ## Fila automática de lotes
 
 No aplicativo desktop, é possível adicionar até 30 lotes dentro da mesma janela. Cada lote guarda sua pasta, vinheta, metadados, capa e configuração. A fila processa um lote por vez e inicia o próximo automaticamente. Em caso de interrupção, as músicas já concluídas do lote ficam registradas para retomada.
+
+## Modo portátil
+
+Execute `PREPARAR-LUCAS-GRAVACOES-PORTATIL.bat` em um computador com Node.js/npm e escolha o HD, SSD externo ou pendrive. O preparador cria `LucasGravacoes-Portable` com o Electron e o codificador MP3 locais. Depois, abra pelo arquivo `ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs` dentro da pasta portátil. Dados, vinheta, perfis, fila e retomadas ficam em `LucasGravacoes-Dados`. Caminhos de músicas no mesmo disco são independentes da letra atribuída pelo Windows.
