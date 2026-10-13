@@ -303,11 +303,108 @@ function setBatchUiLocked(locked){['tracks','jingle','selectMusicFolder','insert
 function captureBatchSettings(){return {insertionMode,manualInsertTime,duckDb:insertionMode==='manual'?manualDuckDb:AUTO_DUCK_DB,replaceOriginals,metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||'',cover:defaultMetadata.cover?{...defaultMetadata.cover}:null}}}
 function currentSettingsSnapshot(){return {insertionMode,manualInsertTime,manualDuckDb,replaceOriginals,metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||''}}}
 async function saveBatchCheckpoint(){if(!isElectron()||!desktopFolder)return;const allFiles=resumeState&&Array.isArray(resumeState.files)?resumeState.files:tracks().map(f=>f.sourcePath).filter(Boolean);resumeState={version:1,folder:desktopFolder,files:allFiles,completed:[...resumedCompletedPaths],settings:currentSettingsSnapshot(),updatedAt:new Date().toISOString()};await window.lucasDesktop.saveBatchState(resumeState)}
-async function markBatchFileCompleted(file){if(!isElectron()||!file?.sourcePath)return;if(!resumedCompletedPaths.includes(file.sourcePath))resumedCompletedPaths.push(file.sourcePath);await saveBatchCheckpoint()}
+async function markBatchFileCompleted(file){if(!isElectron()||!file?.sourcePath)return;if(!resumedCompletedPaths.includes(file.sourcePath))resumedCompletedPaths.push(file.sourcePath);await saveBatchCheckpoint();if(currentQueueLotId){const total=currentBatchTotal()||1,progress=Math.round(resumedCompletedPaths.length/total*100);await persistQueueLotProgress(currentQueueLotId,{completedFiles:[...resumedCompletedPaths],completedCount:resumedCompletedPaths.length,progress})}}
 async function clearBatchCheckpoint(){if(isElectron())await window.lucasDesktop.clearBatchState();resumeState=null;resumedCompletedPaths=[]}
 function applySettingsSnapshot(settings){if(!settings)return;insertionMode=settings.insertionMode==='manual'?'manual':'auto';manualInsertTime=Number.isFinite(settings.manualInsertTime)?settings.manualInsertTime:manualInsertTime;manualDuckDb=Number.isFinite(settings.manualDuckDb)?settings.manualDuckDb:manualDuckDb;replaceOriginals=settings.replaceOriginals!==false;if(settings.metadata)defaultMetadata={...defaultMetadata,artist:settings.metadata.artist||'',composer:settings.metadata.composer||'',album:settings.metadata.album||''};saveInsertionSettings();$('replaceOriginals').checked=replaceOriginals;renderDefaultMetadata();updateInsertionModeUI()}
 function resetLoadedTracksUi(){for(const e of previewEntries){if(e.processedUrl)URL.revokeObjectURL(e.processedUrl)}previewEntries=[];$('compareSong').replaceChildren();if(originalPreviewUrl)URL.revokeObjectURL(originalPreviewUrl);originalPreviewUrl=null;exportedFiles=[];$('downloadZip').disabled=true;$('previewArea').hidden=true;$('files').textContent=tracks().map(f=>f.name).join(' • ')||'Nenhuma música selecionada.';$('previewSongSelect').replaceChildren(new Option('Selecione uma música...',''),...tracks().map((f,i)=>new Option(f.name,String(i))));previewBatchToken++;previewPreparing=false;previewProductionDone=true;signalPipeline();resetAutoPipeline();clearPreparedPreviews();resetPreviewSongStates();clearFinalOutputs();previewAuthorized=false;clearInsertionPreview();if(tracks().length){$('previewSongSelect').value='0';$('entryPointResult').textContent='Músicas carregadas. Confirme os metadados para iniciar.'}else{$('previewSongSelect').value='';$('entryPointResult').textContent='Carregue as músicas e a vinheta.'}updatePreparePreviewButton();updateDashboard()}
 function setDesktopFolderResult(result,{resume=false,completed=[]}={}){if(!result)return;desktopFolder=result.folder;const completedSet=new Set(completed||[]),allowedSet=resume&&resumeState&&Array.isArray(resumeState.files)?new Set(resumeState.files):null;desktopTracks=(result.files||[]).filter(x=>(!allowedSet||allowedSet.has(x.path))&&!completedSet.has(x.path)).map(makeDesktopFile);$('selectedFolder').textContent=desktopFolder+' • '+desktopTracks.length+' música(s) pendente(s)';$('tracks').value='';if(!resume){resumedCompletedPaths=[];resumeState=null;finalizedCount=0;batchOriginalTotal=desktopTracks.length}else{resumedCompletedPaths=[...completed];finalizedCount=resumedCompletedPaths.length;batchOriginalTotal=(resumeState&&resumeState.files&&resumeState.files.length)||((result.files||[]).length)}batchCompleted=false;currentWork='Aguardando';resetLoadedTracksUi()}
+async function loadQueueLotIntoWorkspace(id){
+  const lot=await window.lucasDesktop.loadQueueLot(id);
+  if(!lot||!lot.folder)throw Error('Lote inválido ou sem pasta.');
+  if(!lot.jingleData?.base64)throw Error('A vinheta deste lote não foi encontrada.');
+
+  const result=await window.lucasDesktop.loadMusicFolder(lot.folder);
+  const completed=Array.isArray(lot.completedFiles)?lot.completedFiles:[];
+
+  insertionMode=lot.settings?.insertionMode==='manual'?'manual':'auto';
+  manualInsertTime=Math.max(0,Number(lot.settings?.manualInsertTime??30));
+  manualDuckDb=Math.max(-12,Math.min(0,Number(lot.settings?.manualDuckDb??-4)));
+  replaceOriginals=lot.settings?.replaceOriginals!==false;
+
+  const meta=lot.settings?.metadata||{};
+  defaultMetadata={
+    artist:meta.artist||'',
+    composer:meta.composer||'',
+    album:meta.album||'',
+    cover:lot.coverData?.base64?{blob:new Blob([base64ToBytes(lot.coverData.base64)],{type:lot.coverData.type||'image/jpeg'}),name:lot.coverData.name||'capa.jpg',type:lot.coverData.type||'image/jpeg'}:null
+  };
+  defaultJingleFile=new File([base64ToBytes(lot.jingleData.base64)],lot.jingleData.name||'vinheta.mp3',{type:lot.jingleData.type||'audio/mpeg',lastModified:Date.now()});
+  $('jingle').value='';$('defaultCover').value='';$('replaceOriginals').checked=replaceOriginals;
+  renderDefaultMetadata();updateDefaultJingleStatus();updateInsertionModeUI();
+
+  resumeState={version:1,folder:lot.folder,files:Array.isArray(lot.files)?lot.files:[],completed,settings:lot.settings||{},updatedAt:new Date().toISOString()};
+  setDesktopFolderResult(result,{resume:true,completed});
+  currentWork=(lot.name||'Lote')+' • aguardando início';updateDashboard();
+  showWizardStep(2);
+  return lot
+}
+
+function resolveQueueBatch(result){
+  if(!queueBatchResolver)return;
+  const done=queueBatchResolver;queueBatchResolver=null;done(result)
+}
+
+async function startBatchQueue(){
+  if(!isElectron()||queueRunning)return;
+  const pending=batchQueueLots.filter(l=>l.status==='waiting');
+  if(!pending.length){$('queueStatus').textContent='Não há lotes aguardando.';return}
+
+  queueRunning=true;queueStopRequested=false;renderBatchQueue();
+  let processedLots=0,totalSongsDone=0;
+  try{
+    for(const summary of [...pending]){
+      if(queueStopRequested)break;
+      currentQueueLotId=summary.id;queueBatchErrors=0;cancelRequested=false;
+      await persistQueueLotProgress(summary.id,{status:'processing',error:'',progress:Number(summary.progress)||0});
+
+      try{
+        const lot=await loadQueueLotIntoWorkspace(summary.id);
+        const finishPromise=new Promise(resolve=>{queueBatchResolver=resolve});
+        const started=await beginCurrentBatch({fromQueue:true});
+        if(!started){
+          resolveQueueBatch({completed:false,cancelled:false,errors:1,finalized:finalizedCount,total:currentBatchTotal()});
+        }
+        const result=await finishPromise;
+
+        if(result.cancelled){
+          await persistQueueLotProgress(summary.id,{status:'cancelled',progress:result.total?Math.round(result.finalized/result.total*100):0,completedCount:result.finalized,error:'Fila interrompida pelo usuário.'});
+          queueStopRequested=true;
+          break
+        }
+
+        const success=result.total>0&&result.finalized>=result.total&&result.errors===0;
+        if(success){
+          processedLots++;totalSongsDone+=result.finalized;
+          await persistQueueLotProgress(summary.id,{status:'completed',progress:100,completedCount:result.finalized,error:''});
+        }else{
+          await persistQueueLotProgress(summary.id,{status:'error',progress:result.total?Math.round(result.finalized/result.total*100):0,completedCount:result.finalized,error:result.errors+' erro(s) no lote.'});
+        }
+        await clearBatchCheckpoint();
+      }catch(e){
+        resolveQueueBatch({completed:false,cancelled:false,errors:1,finalized:finalizedCount,total:currentBatchTotal()});
+        await persistQueueLotProgress(summary.id,{status:'error',error:e.message||String(e),progress:currentBatchTotal()?Math.round(finalizedCount/currentBatchTotal()*100):0,completedCount:finalizedCount});
+        try{await clearBatchCheckpoint()}catch(_){}
+      }finally{
+        currentQueueLotId=null;queueBatchResolver=null;activeBatchSettings=null;cancelRequested=false;
+      }
+    }
+  }finally{
+    queueRunning=false;currentQueueLotId=null;queueBatchResolver=null;activeBatchSettings=null;
+    setBatchUiLocked(false);desktopProcessing(false);await refreshBatchQueue();
+    if(queueStopRequested){
+      $('queueStatus').textContent='Fila pausada. Os lotes que ainda estão aguardando continuam salvos.';
+      showMiniToast('error','Fila pausada','O processamento automático foi interrompido.')
+    }else{
+      const waiting=batchQueueLots.filter(l=>l.status==='waiting').length;
+      $('queueStatus').textContent=waiting?'Fila terminou esta rodada. Ainda há '+waiting+' lote(s) aguardando.':'Fila automática concluída.';
+      if(processedLots){
+        showMiniToast('final','Fila finalizada',processedLots+' lote(s) concluído(s) • '+totalSongsDone+' música(s).');
+        if(isElectron())window.lucasDesktop.notifyComplete({total:totalSongsDone,previewReady:0,finalized:totalSongsDone,percent:100,current:'Fila automática finalizada ✓',completed:true})
+      }
+    }
+  }
+}
+
 async function refreshProfiles(){if(!isElectron())return;try{const profiles=await window.lucasDesktop.listProfiles(),sel=$('profileSelect'),current=sel.value;sel.replaceChildren(new Option('Nenhum perfil',''),...profiles.map(p=>new Option(p.name,p.id)));if([...sel.options].some(o=>o.value===current))sel.value=current}catch(e){$('profileStatus').textContent='Não foi possível carregar perfis.'}}
 async function saveCurrentProfile(){if(!isElectron())return;const name=$('profileName').value.trim();if(!name)throw Error('Digite um nome para o perfil.');const j=activeJingle(),selectedCover=$('defaultCover').files&&$('defaultCover').files[0],cover=selectedCover?{blob:selectedCover,name:selectedCover.name,type:selectedCover.type}:defaultMetadata.cover;const config=currentSettingsSnapshot();config.metadata={artist:$('defaultArtist').value.trim(),composer:$('defaultComposer').value.trim(),album:$('defaultAlbum').value.trim()};const payload={name,config};if(j)payload.jingle=await blobPayload(j,j.name,j.type);if(cover?.blob)payload.cover=await blobPayload(cover.blob,cover.name,cover.type);await window.lucasDesktop.saveProfile(payload);await refreshProfiles();$('profileStatus').textContent='Perfil salvo.'}
 async function applySelectedProfile(){if(!isElectron())return;const id=$('profileSelect').value;if(!id)return;const p=await window.lucasDesktop.loadProfile(id);applySettingsSnapshot(p);$('jingle').value='';defaultJingleFile=p.jingleData?.base64?new File([base64ToBytes(p.jingleData.base64)],p.jingleData.name||'vinheta.mp3',{type:p.jingleData.type||'audio/mpeg'}):null;if(p.coverData?.base64){const blob=new Blob([base64ToBytes(p.coverData.base64)],{type:p.coverData.type||'image/jpeg'});defaultMetadata.cover={blob,name:p.coverData.name||'capa.jpg',type:p.coverData.type||'image/jpeg'}}else defaultMetadata.cover=null;renderDefaultMetadata();updateDefaultJingleStatus();await persistDesktopDefaults({jingle:defaultJingleFile,cover:defaultMetadata.cover,removeJingle:!defaultJingleFile,removeCover:!defaultMetadata.cover});$('profileStatus').textContent='Perfil aplicado: '+p.name;updatePreparePreviewButton()}
@@ -576,25 +673,27 @@ $('preparePreview').addEventListener('click',async()=>{
   finally{btn.disabled=false}
 });
 
-$('startBatch').addEventListener('click',async()=>{
+async function beginCurrentBatch({fromQueue=false}={}){
   let files=tracks();
   const jingle=activeJingle(),btn=$('startBatch');
-  if(!files.length){$('defaultMetadataStatus').textContent='Volte em Músicas e selecione o lote.';return}
-  if(!jingle){$('defaultMetadataStatus').textContent='Volte em Músicas e escolha a vinheta.';return}
+  if(!files.length){$('defaultMetadataStatus').textContent='Volte em Músicas e selecione o lote.';return false}
+  if(!jingle){$('defaultMetadataStatus').textContent='Volte em Músicas e escolha a vinheta.';return false}
   try{
     btn.disabled=true;btn.textContent='Iniciando lote…';
-    await saveDefaultMetadataSettings();
-    replaceOriginals=$('replaceOriginals').checked;
-    await persistDesktopDefaults();
+    if(!fromQueue){
+      await saveDefaultMetadataSettings();
+      replaceOriginals=$('replaceOriginals').checked;
+      await persistDesktopDefaults();
+    }
 
     if(!batchOriginalTotal)batchOriginalTotal=files.length;
     if(!resumeState)resumedCompletedPaths=[];
 
     if(isElectron()&&resumedCompletedPaths.length&&desktopTracks.length){
       const doneSet=new Set(resumedCompletedPaths);
-      const pending=desktopTracks.filter(file=>!doneSet.has(file.sourcePath));
-      if(pending.length!==desktopTracks.length){
-        desktopTracks=pending;
+      const pendingTracks=desktopTracks.filter(file=>!doneSet.has(file.sourcePath));
+      if(pendingTracks.length!==desktopTracks.length){
+        desktopTracks=pendingTracks;
         resetLoadedTracksUi();
         files=tracks();
       }
@@ -607,7 +706,8 @@ $('startBatch').addEventListener('click',async()=>{
       await clearBatchCheckpoint();
       $('defaultMetadataStatus').textContent='Este lote já estava totalmente finalizado.';
       showWizardStep(4);
-      return
+      if(currentQueueLotId)resolveQueueBatch({completed:true,cancelled:false,errors:0,finalized:finalizedCount,total:batchOriginalTotal});
+      return true
     }
 
     activeBatchSettings=captureBatchSettings();
@@ -620,14 +720,18 @@ $('startBatch').addEventListener('click',async()=>{
     previewAuthorized=true;
     if($('previewSongSelect').value===''&&files.length)$('previewSongSelect').value='0';
     $('previewBatchStatus').textContent=workerNote+'análise iniciada.';
-    showWizardStep(3);renderPreviewQueue();prepareAllPreviews()
+    showWizardStep(3);renderPreviewQueue();prepareAllPreviews();
+    return true
   }catch(e){
-    activeBatchSettings=null;setBatchUiLocked(false);desktopProcessing(false);
-    $('defaultMetadataStatus').textContent='Não foi possível iniciar: '+e.message
+    activeBatchSettings=null;if(!queueRunning)setBatchUiLocked(false);desktopProcessing(queueRunning);
+    $('defaultMetadataStatus').textContent='Não foi possível iniciar: '+e.message;
+    if(currentQueueLotId)resolveQueueBatch({completed:false,cancelled:false,errors:1,finalized:finalizedCount,total:currentBatchTotal()});
+    return false
   }finally{btn.disabled=!!activeBatchSettings;btn.textContent='OK — Iniciar lote'}
-});
+}
+$('startBatch').addEventListener('click',()=>beginCurrentBatch());
 
-async function initDesktopUi(){
+async function initDesktopUi()sync function initDesktopUi(){
   if(!isElectron()){updatePreparePreviewButton();return}
   $('desktopFolderBox').hidden=false;
   $('profileBox').hidden=false;
