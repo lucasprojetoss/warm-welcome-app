@@ -1,4 +1,4 @@
-const CACHE='lucas-gravacoes-v30';
+const CACHE='lucas-gravacoes-v31';
 const ASSETS=['./','./index.html','./manifest.webmanifest','./mp3-worker.js','./analysis-worker.js','https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(async c=>{for(const asset of ASSETS){try{await c.add(asset)}catch(_){}}}))});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
