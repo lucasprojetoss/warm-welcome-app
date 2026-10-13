@@ -55,6 +55,12 @@ function profilesRoot() {
   return dir;
 }
 
+function queueRoot() {
+  const dir = path.join(dataRoot(), 'fila-lotes');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 function settingsPath() {
   return path.join(dataRoot(), 'configuracoes.json');
 }
@@ -745,6 +751,176 @@ function loadProfile(id) {
   };
 }
 
+let queueRecoveredThisSession = false;
+
+function queueLotDir(id) {
+  const safe = String(id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!safe) throw new Error('Lote inválido.');
+  const dir = path.join(queueRoot(), safe);
+  if (!isInside(queueRoot(), dir)) throw new Error('Lote fora da fila.');
+  return dir;
+}
+
+function readQueueLotConfig(id) {
+  const dir = queueLotDir(id);
+  const config = safeJsonRead(path.join(dir, 'lote.json'), null);
+  if (!config) throw new Error('Lote não encontrado.');
+  return config;
+}
+
+function queueLotSummary(config) {
+  return {
+    id: config.id,
+    name: config.name,
+    folder: config.folder,
+    fileCount: Array.isArray(config.files) ? config.files.length : Number(config.fileCount || 0),
+    status: config.status || 'waiting',
+    progress: Number(config.progress || 0),
+    completedCount: Number(config.completedCount || 0),
+    error: config.error || '',
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt
+  };
+}
+
+function listQueueLots() {
+  const root = queueRoot();
+  const configs = fs.readdirSync(root, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => {
+      const file = path.join(root, entry.name, 'lote.json');
+      const config = safeJsonRead(file, null);
+      if (!config) return null;
+
+      if (!queueRecoveredThisSession && config.status === 'processing') {
+        config.status = 'waiting';
+        config.progress = Number(config.progress || 0);
+        config.error = 'Processamento anterior foi interrompido; lote voltou para a fila.';
+        config.updatedAt = new Date().toISOString();
+        try { safeJsonWrite(file, config); } catch (_) {}
+      }
+      return config;
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+
+  queueRecoveredThisSession = true;
+  return configs.map(queueLotSummary);
+}
+
+function saveQueueLot(payload = {}) {
+  const current = listQueueLots();
+  if (current.length >= 30) throw new Error('A fila aceita até 30 lotes por vez.');
+
+  const folder = path.resolve(String(payload.folder || ''));
+  if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) throw new Error('Pasta do lote não encontrada.');
+
+  const activeDuplicate = current.find(item =>
+    ['waiting', 'processing'].includes(item.status) &&
+    path.resolve(item.folder) === folder
+  );
+  if (activeDuplicate) throw new Error('Esta pasta já está aguardando ou processando na fila.');
+
+  const files = listMp3Files(folder).map(file => file.path);
+  if (!files.length) throw new Error('Nenhum MP3 encontrado nesta pasta.');
+
+  const jingleData = incomingFileBuffer(payload.jingle);
+  if (!jingleData || jingleData.length < 128) throw new Error('Escolha uma vinheta válida para este lote.');
+
+  const id = 'lote-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
+  const dir = queueLotDir(id);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const jingleExt = (path.extname(payload.jingle?.name || '') || '.mp3').toLowerCase();
+  const jinglePath = path.join(dir, 'vinheta' + jingleExt);
+  writePersistentFile(jinglePath, jingleData, 'vinheta do lote');
+
+  let cover = null;
+  if (payload.cover) {
+    const coverData = incomingFileBuffer(payload.cover);
+    if (coverData && coverData.length >= 32) {
+      const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
+      const coverPath = path.join(dir, 'capa' + ext);
+      writePersistentFile(coverPath, coverData, 'capa do lote');
+      cover = {
+        path: coverPath,
+        name: payload.cover.name || path.basename(coverPath),
+        type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg')
+      };
+    }
+  }
+
+  const number = current.length + 1;
+  const config = {
+    version: 1,
+    id,
+    name: String(payload.name || '').trim() || ('Lote ' + number),
+    folder,
+    files,
+    fileCount: files.length,
+    status: 'waiting',
+    progress: 0,
+    completedCount: 0,
+    error: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    settings: {
+      insertionMode: payload.settings?.insertionMode === 'manual' ? 'manual' : 'auto',
+      manualInsertTime: Number(payload.settings?.manualInsertTime ?? 30),
+      manualDuckDb: Number(payload.settings?.manualDuckDb ?? -4),
+      replaceOriginals: payload.settings?.replaceOriginals !== false,
+      metadata: {
+        artist: String(payload.settings?.metadata?.artist || ''),
+        composer: String(payload.settings?.metadata?.composer || ''),
+        album: String(payload.settings?.metadata?.album || '')
+      }
+    },
+    jingle: {
+      path: jinglePath,
+      name: payload.jingle?.name || path.basename(jinglePath),
+      type: payload.jingle?.type || 'audio/mpeg'
+    },
+    cover
+  };
+
+  safeJsonWrite(path.join(dir, 'lote.json'), config);
+  return queueLotSummary(config);
+}
+
+function loadQueueLot(id) {
+  const config = readQueueLotConfig(id);
+  return {
+    ...config,
+    jingleData: config.jingle ? attachmentFromFile(config.jingle.path, config.jingle.type || 'audio/mpeg', config.jingle.name) : null,
+    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg', config.cover.name) : null
+  };
+}
+
+function updateQueueLot(id, patch = {}) {
+  const dir = queueLotDir(id);
+  const file = path.join(dir, 'lote.json');
+  const config = safeJsonRead(file, null);
+  if (!config) throw new Error('Lote não encontrado.');
+
+  const allowedStatus = ['waiting', 'processing', 'completed', 'error', 'cancelled'];
+  if (patch.status && allowedStatus.includes(patch.status)) config.status = patch.status;
+  if (Number.isFinite(patch.progress)) config.progress = Math.max(0, Math.min(100, Number(patch.progress)));
+  if (Number.isFinite(patch.completedCount)) config.completedCount = Math.max(0, Number(patch.completedCount));
+  if (typeof patch.error === 'string') config.error = patch.error.slice(0, 1000);
+  config.updatedAt = new Date().toISOString();
+
+  safeJsonWrite(file, config);
+  return queueLotSummary(config);
+}
+
+function removeQueueLot(id) {
+  const config = readQueueLotConfig(id);
+  if (config.status === 'processing') throw new Error('Não é possível remover o lote que está processando.');
+  const dir = queueLotDir(id);
+  fs.rmSync(dir, { recursive: true, force: true });
+  return true;
+}
+
 function getDiagnostics() {
   const display = getTargetDisplay();
   let logTail = '';
@@ -920,6 +1096,12 @@ ipcMain.handle('batch:clear', () => {
   try { if (fs.existsSync(batchStatePath())) fs.unlinkSync(batchStatePath()); } catch (_) {}
   return true;
 });
+
+ipcMain.handle('queue:list', () => listQueueLots());
+ipcMain.handle('queue:add', (_event, payload) => saveQueueLot(payload || {}));
+ipcMain.handle('queue:load', (_event, id) => loadQueueLot(String(id || '')));
+ipcMain.handle('queue:update', (_event, id, patch) => updateQueueLot(String(id || ''), patch || {}));
+ipcMain.handle('queue:remove', (_event, id) => removeQueueLot(String(id || '')));
 
 ipcMain.handle('diagnostics:get', () => getDiagnostics());
 
