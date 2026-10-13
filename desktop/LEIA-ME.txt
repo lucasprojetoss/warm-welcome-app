@@ -15,3 +15,9 @@ IMPORTANTE:
 - Ao minimizar, o programa fica normalmente na barra de tarefas do Windows.
 - Durante o lote, o Electron ativa protecao contra suspensao e desativa o throttling em segundo plano.
 - Vinheta padrao, capa, metadados, perfis e retomada ficam na pasta de dados do aplicativo e nao devem ser apagados por atualizacoes.
+
+FILA AUTOMATICA:
+- Adicione ate 30 lotes dentro do mesmo programa.
+- Cada lote guarda pasta, vinheta, metadados, capa e configuracao.
+- O sistema processa um lote por vez e inicia o proximo automaticamente.
+- Se houver interrupcao, as musicas ja concluidas ficam registradas para retomada.
