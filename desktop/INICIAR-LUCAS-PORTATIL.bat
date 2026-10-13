@@ -19,7 +19,7 @@ if not exist "%ELECTRON%" goto :runtime_missing
 rem O modo portatil nao atualiza por Git.
 rem Use o botao "Atualizar portatil" dentro do programa.
 echo %date% %time% - Iniciando Electron portatil>>"%LOG%"
-start "" "%ELECTRON%" "%~dp0"
+start "" "%ELECTRON%" "."
 exit /b 0
 
 :runtime_missing
