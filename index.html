@@ -220,7 +220,7 @@ function renderPreviewQueue(){const box=$('previewQueueList');if(!box)return;box
 function buildFinalQueue(){const box=$('finalQueue');box.replaceChildren();tracks().forEach((file,i)=>{const row=document.createElement('div');row.className='finalSongRow';row.dataset.index=String(i);const head=document.createElement('div');head.className='finalSongHead';const name=document.createElement('strong');name.textContent=file.name;name.title=file.name;const state=document.createElement('span');state.className='finalSongState';state.textContent='Aguardando';const p=document.createElement('progress');p.max=100;p.value=0;p.style.width='100%';p.style.height='10px';head.append(name,state);row.append(head,p);box.append(row)})}
 function setFinalSongProgress(index,value,label,stateClass){const row=$('finalQueue').querySelector('[data-index="'+index+'"]');if(!row)return;const p=row.querySelector('progress'),state=row.querySelector('.finalSongState');p.value=Math.max(0,Math.min(100,value));state.textContent=label;if(value>0&&value<100)currentWork='Finalizando: '+(tracks()[index]?.name||'música');if(stateClass){row.classList.remove('done','error');row.classList.add(stateClass)}updateDashboard()}
 
-function setBatchUiLocked(locked){['tracks','jingle','selectMusicFolder','insertionModeToggle','manualInsertTime','manualDuckDb','replaceOriginals','applyProfile','profileSelect','profileName','saveProfile','saveDefaultJingle','removeDefaultJingle','saveDefaultMetadata','removeDefaultCover','defaultArtist','defaultComposer','defaultAlbum','defaultCover'].forEach(id=>{const el=$(id);if(el)el.disabled=!!locked})}
+function setBatchUiLocked(locked){['tracks','jingle','selectMusicFolder','insertionModeToggle','manualInsertTime','manualDuckDb','replaceOriginals','applyProfile','profileSelect','profileName','saveProfile','saveDefaultJingle','removeDefaultJingle','saveDefaultMetadata','removeDefaultCover','defaultArtist','defaultComposer','defaultAlbum','defaultCover','preparePreview','startBatch'].forEach(id=>{const el=$(id);if(el)el.disabled=!!locked})}
 function captureBatchSettings(){return {insertionMode,manualInsertTime,duckDb:insertionMode==='manual'?manualDuckDb:AUTO_DUCK_DB,replaceOriginals,metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||'',cover:defaultMetadata.cover?{...defaultMetadata.cover}:null}}}
 function currentSettingsSnapshot(){return {insertionMode,manualInsertTime,manualDuckDb,replaceOriginals,metadata:{artist:defaultMetadata.artist||'',composer:defaultMetadata.composer||'',album:defaultMetadata.album||''}}}
 async function saveBatchCheckpoint(){if(!isElectron()||!desktopFolder)return;const allFiles=resumeState&&Array.isArray(resumeState.files)?resumeState.files:tracks().map(f=>f.sourcePath).filter(Boolean);resumeState={version:1,folder:desktopFolder,files:allFiles,completed:[...resumedCompletedPaths],settings:currentSettingsSnapshot(),updatedAt:new Date().toISOString()};await window.lucasDesktop.saveBatchState(resumeState)}
@@ -261,12 +261,13 @@ async function finalizePreparedSong(job,jingle,files){
 
   if(isElectron()&&file.sourcePath){
     const bytes=await blob.arrayBuffer();
-    if(replaceOriginals)await window.lucasDesktop.replaceMusicFile(file.sourcePath,bytes);
+    const replaceThisBatch=activeBatchSettings?activeBatchSettings.replaceOriginals:replaceOriginals;
+    if(replaceThisBatch)await window.lucasDesktop.replaceMusicFile(file.sourcePath,bytes);
     else await window.lucasDesktop.saveMusicCopy(file.sourcePath,bytes);
     await markBatchFileCompleted(file);
     const saved=document.createElement('span');
     saved.className='tag';
-    saved.textContent=replaceOriginals?'Substituído na pasta ✓':'Cópia salva ✓';
+    saved.textContent=(activeBatchSettings?activeBatchSettings.replaceOriginals:replaceOriginals)?'Substituído na pasta ✓':'Cópia salva ✓';
     row.append(name,saved);
   }else{
     const outputName=file.name.replace(/\.[^.]+$/,'')+'_LucasGravacoes.mp3';
@@ -326,7 +327,7 @@ async function runAutoFinalizer(token,jingle,files){
     }
   }finally{
     if(token===previewBatchToken){
-      autoFinalizeActive=false;processing=false;desktopProcessing(false);
+      autoFinalizeActive=false;processing=false;desktopProcessing(false);activeBatchSettings=null;setBatchUiLocked(false);
       $('cancelProcess').disabled=true;btn.disabled=false;btn.textContent='Reprocessar lote';updateDashboard()
     }
   }
@@ -390,14 +391,14 @@ async function prepareAllPreviews(){
       if(token!==previewBatchToken||!previewAuthorized)break;
       const file=files[i],started=performance.now();
       try{
-        setPreviewSongState(i,'working',12,insertionMode==='auto'?'Analisando':'Preparando');
+        setPreviewSongState(i,'working',12,(activeBatchSettings?.insertionMode||insertionMode)==='auto'?'Analisando':'Preparando');
         $('previewBatchStatus').textContent='Preparando '+(i+1)+'/'+files.length+': '+file.name;
         const music=await decode(file,ctx);
         if(token!==previewBatchToken||!previewAuthorized)break;
-        setPreviewSongState(i,'working',42,insertionMode==='auto'?'Analisando':'Tempo manual');
+        setPreviewSongState(i,'working',42,(activeBatchSettings?.insertionMode||insertionMode)==='auto'?'Analisando':'Tempo manual');
         lastAutoAnalysis=null;
         const point=await chooseInsertionPoint(music,jingle);
-        const analysis=insertionMode==='auto'&&lastAutoAnalysis?{...lastAutoAnalysis}:null;
+        const analysis=(activeBatchSettings?.insertionMode||insertionMode)==='auto'&&lastAutoAnalysis?{...lastAutoAnalysis}:null;
         if(!Number.isFinite(point)||point<0||point+jingle.duration>music.duration)throw Error('Tempo de inserção inválido para esta música');
         setPreviewSongState(i,'working',75,'Ponto encontrado');
         if(token!==previewBatchToken||!previewAuthorized)break;
@@ -427,6 +428,7 @@ async function prepareAllPreviews(){
     if(ctx)await ctx.close();
     if(token===previewBatchToken){
       previewPreparing=false;
+      if(!autoFinalizeActive&&!processing){activeBatchSettings=null;setBatchUiLocked(false);desktopProcessing(false)}
       btn.textContent='OK — Ir para metadados';
       updatePreparePreviewButton();
     }
@@ -528,6 +530,8 @@ $('startBatch').addEventListener('click',async()=>{
       return
     }
 
+    activeBatchSettings=captureBatchSettings();
+    setBatchUiLocked(true);
     batchCompleted=false;currentWork='Iniciando lote';updateDashboard();
     await saveBatchCheckpoint();
     desktopProcessing(true);
@@ -538,9 +542,9 @@ $('startBatch').addEventListener('click',async()=>{
     $('previewBatchStatus').textContent=workerNote+'análise iniciada.';
     showWizardStep(3);renderPreviewQueue();prepareAllPreviews()
   }catch(e){
-    desktopProcessing(false);
+    activeBatchSettings=null;setBatchUiLocked(false);desktopProcessing(false);
     $('defaultMetadataStatus').textContent='Não foi possível iniciar: '+e.message
-  }finally{btn.disabled=false;btn.textContent='OK — Iniciar lote'}
+  }finally{btn.disabled=!!activeBatchSettings;btn.textContent='OK — Iniciar lote'}
 });
 
 async function initDesktopUi(){
@@ -636,7 +640,7 @@ function u32be(n){return new Uint8Array([(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n
 function syncSafe4(n){return new Uint8Array([(n>>>21)&127,(n>>>14)&127,(n>>>7)&127,n&127])}
 function utf16Payload(text){const str=String(text||''),out=new Uint8Array(3+str.length*2);out[0]=1;out[1]=255;out[2]=254;for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);out[3+i*2]=c&255;out[4+i*2]=c>>>8}return out}
 function makeId3Frame(id,payload){const idb=new TextEncoder().encode(id),out=new Uint8Array(10+payload.length);out.set(idb,0);out.set(u32be(payload.length),4);out[8]=0;out[9]=0;out.set(payload,10);return out}
-async function embedDefaultId3(mp3Blob,sourceFile){const title=await readOriginalTitle(sourceFile),frames=[];frames.push(makeId3Frame('TIT2',utf16Payload(title)));if(defaultMetadata.artist)frames.push(makeId3Frame('TPE1',utf16Payload(defaultMetadata.artist)));if(defaultMetadata.composer)frames.push(makeId3Frame('TCOM',utf16Payload(defaultMetadata.composer)));if(defaultMetadata.album)frames.push(makeId3Frame('TALB',utf16Payload(defaultMetadata.album)));if(defaultMetadata.cover&&defaultMetadata.cover.blob){const coverBytes=new Uint8Array(await defaultMetadata.cover.blob.arrayBuffer()),mime=new TextEncoder().encode(defaultMetadata.cover.type||defaultMetadata.cover.blob.type||'image/jpeg'),apic=new Uint8Array(1+mime.length+1+1+1+coverBytes.length);let o=0;apic[o++]=0;apic.set(mime,o);o+=mime.length;apic[o++]=0;apic[o++]=3;apic[o++]=0;apic.set(coverBytes,o);frames.push(makeId3Frame('APIC',apic))}const total=frames.reduce((n,x)=>n+x.length,0),header=new Uint8Array(10);header.set([73,68,51,3,0,0],0);header.set(syncSafe4(total),6);return new Blob([header,...frames,mp3Blob],{type:'audio/mpeg'})}
+async function embedDefaultId3(mp3Blob,sourceFile){const meta=activeBatchSettings?.metadata||defaultMetadata,title=await readOriginalTitle(sourceFile),frames=[];frames.push(makeId3Frame('TIT2',utf16Payload(title)));if(meta.artist)frames.push(makeId3Frame('TPE1',utf16Payload(meta.artist)));if(meta.composer)frames.push(makeId3Frame('TCOM',utf16Payload(meta.composer)));if(meta.album)frames.push(makeId3Frame('TALB',utf16Payload(meta.album)));if(meta.cover&&meta.cover.blob){const coverBytes=new Uint8Array(await meta.cover.blob.arrayBuffer()),mime=new TextEncoder().encode(meta.cover.type||meta.cover.blob.type||'image/jpeg'),apic=new Uint8Array(1+mime.length+1+1+1+coverBytes.length);let o=0;apic[o++]=0;apic.set(mime,o);o+=mime.length;apic[o++]=0;apic[o++]=3;apic[o++]=0;apic.set(coverBytes,o);frames.push(makeId3Frame('APIC',apic))}const total=frames.reduce((n,x)=>n+x.length,0),header=new Uint8Array(10);header.set([73,68,51,3,0,0],0);header.set(syncSafe4(total),6);return new Blob([header,...frames,mp3Blob],{type:'audio/mpeg'})}
 function selectCompare(index){const entry=previewEntries[index];if(!entry)return;const original=$('originalPreview'),processed=$('preview');original.pause();processed.pause();if(originalPreviewUrl)URL.revokeObjectURL(originalPreviewUrl);originalPreviewUrl=URL.createObjectURL(entry.file);original.src=originalPreviewUrl;processed.src=entry.processedUrl;$('compareSong').value=String(index)}
 $('compareSong').addEventListener('change',()=>selectCompare(Number($('compareSong').value)));
 $('syncCompare').addEventListener('click',async()=>{const a=$('originalPreview'),b=$('preview');if(!a.src||!b.src)return;try{if(!a.paused){const t=a.currentTime;a.pause();b.currentTime=Math.min(t,Number.isFinite(b.duration)?b.duration:Infinity);await b.play()}else{const t=b.currentTime;b.pause();a.currentTime=Math.min(t,Number.isFinite(a.duration)?a.duration:Infinity);await a.play()}}catch(e){$('status').textContent='Não foi possível alternar a reprodução: '+e.message}});
