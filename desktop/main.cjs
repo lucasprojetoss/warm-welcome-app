@@ -64,14 +64,46 @@ function batchStatePath() {
 }
 
 function safeJsonRead(file, fallback = null) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return fallback; }
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (_) {
+    const backup = file + '.bak';
+    try {
+      const recovered = JSON.parse(fs.readFileSync(backup, 'utf8'));
+      try {
+        if (!fs.existsSync(file)) fs.copyFileSync(backup, file);
+      } catch (_) {}
+      return recovered;
+    } catch (_) {
+      return fallback;
+    }
+  }
 }
 
 function safeJsonWrite(file, value) {
   const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
-  if (fs.existsSync(file)) fs.unlinkSync(file);
-  fs.renameSync(tmp, file);
+  const backup = file + '.bak';
+  const content = JSON.stringify(value, null, 2);
+
+  fs.writeFileSync(tmp, content, 'utf8');
+  const verify = JSON.parse(fs.readFileSync(tmp, 'utf8'));
+  if (!verify || typeof verify !== 'object') throw new Error('Falha ao validar arquivo de configuração.');
+
+  try {
+    if (fs.existsSync(backup)) retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza de backup JSON');
+    if (fs.existsSync(file)) retryFileOperation(() => fs.renameSync(file, backup), 'Backup de configuração');
+    retryFileOperation(() => fs.renameSync(tmp, file), 'Gravação de configuração');
+    if (fs.existsSync(backup)) {
+      try { retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza final do backup JSON'); } catch (_) {}
+    }
+  } catch (error) {
+    try {
+      if (!fs.existsSync(file) && fs.existsSync(backup)) retryFileOperation(() => fs.renameSync(backup, file), 'Restauração de configuração');
+    } catch (_) {}
+    throw error;
+  } finally {
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
+  }
 }
 
 function bufferToArrayBuffer(buf) {
@@ -408,6 +440,55 @@ function incomingFileBuffer(item) {
   return null;
 }
 
+function writePersistentFile(dest, data, label) {
+  if (!Buffer.isBuffer(data)) data = Buffer.from(data);
+  if (!data.length) throw new Error(label + ' vazio.');
+
+  const temp = dest + '.tmp';
+  const backup = dest + '.bak';
+
+  try {
+    if (fs.existsSync(temp)) fs.unlinkSync(temp);
+    if (fs.existsSync(backup)) fs.unlinkSync(backup);
+
+    fs.writeFileSync(temp, data);
+    const written = fs.statSync(temp);
+    if (written.size !== data.length) throw new Error(label + ' não foi gravado completamente.');
+
+    if (fs.existsSync(dest)) retryFileOperation(() => fs.renameSync(dest, backup), 'Backup de ' + label);
+    try {
+      retryFileOperation(() => fs.renameSync(temp, dest), 'Gravação de ' + label);
+    } catch (error) {
+      if (!fs.existsSync(dest) && fs.existsSync(backup)) {
+        try { retryFileOperation(() => fs.renameSync(backup, dest), 'Restauração de ' + label); } catch (_) {}
+      }
+      throw error;
+    }
+
+    if (fs.existsSync(backup)) {
+      try { retryFileOperation(() => fs.unlinkSync(backup), 'Limpeza do backup de ' + label); } catch (_) {}
+    }
+    return fs.statSync(dest);
+  } finally {
+    try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+  }
+}
+
+function discoverDefaultCover() {
+  const root = dataRoot();
+  try {
+    const name = fs.readdirSync(root).find(file => /^capa-padrao\.(jpg|jpeg|png)$/i.test(file));
+    if (!name) return null;
+    const filePath = path.join(root, name);
+    const st = fs.statSync(filePath);
+    if (!st.isFile() || st.size < 32) return null;
+    const type = /\.png$/i.test(name) ? 'image/png' : 'image/jpeg';
+    return { path: filePath, name, type, size: st.size, updatedAt: st.mtimeMs };
+  } catch (_) {
+    return null;
+  }
+}
+
 function discoverDefaultJingle() {
   const root = dataRoot();
   try {
@@ -464,22 +545,12 @@ function saveDefaults(payload = {}) {
     if (data && data.length) {
       const ext = (path.extname(payload.jingle.name || '') || '.mp3').toLowerCase();
       const dest = path.join(root, 'vinheta-padrao' + ext);
-      const temp = dest + '.tmp';
+      if (data.length < 128) throw new Error('A vinheta padrão está vazia ou inválida.');
+      const finalStat = writePersistentFile(dest, data, 'vinheta padrão');
 
       for (const name of fs.readdirSync(root).filter(name => /^vinheta-padrao\./i.test(name) && path.join(root, name) !== dest)) {
         try { fs.unlinkSync(path.join(root, name)); } catch (_) {}
       }
-
-      fs.writeFileSync(temp, data);
-      const written = fs.statSync(temp);
-      if (written.size !== data.length || written.size < 128) {
-        try { fs.unlinkSync(temp); } catch (_) {}
-        throw new Error('A vinheta padrão não foi gravada corretamente no disco.');
-      }
-      if (fs.existsSync(dest)) fs.unlinkSync(dest);
-      fs.renameSync(temp, dest);
-
-      const finalStat = fs.statSync(dest);
       next.jingle = {
         path: dest,
         name: payload.jingle.name || path.basename(dest),
@@ -491,15 +562,28 @@ function saveDefaults(payload = {}) {
   }
 
   if (payload.removeCover) {
-    if (next.cover?.path) { try { fs.unlinkSync(next.cover.path); } catch (_) {} }
+    const covers = fs.readdirSync(root).filter(name => /^capa-padrao\./i.test(name));
+    for (const name of covers) { try { fs.unlinkSync(path.join(root, name)); } catch (_) {} }
     next.cover = null;
   } else if (payload.cover) {
     const data = incomingFileBuffer(payload.cover);
     if (data && data.length) {
       const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
       const dest = path.join(root, 'capa-padrao' + ext);
-      fs.writeFileSync(dest, data);
-      next.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg') };
+      if (data.length < 32) throw new Error('A capa padrão está vazia ou inválida.');
+      const finalStat = writePersistentFile(dest, data, 'capa padrão');
+
+      for (const name of fs.readdirSync(root).filter(name => /^capa-padrao\./i.test(name) && path.join(root, name) !== dest)) {
+        try { fs.unlinkSync(path.join(root, name)); } catch (_) {}
+      }
+
+      next.cover = {
+        path: dest,
+        name: payload.cover.name || path.basename(dest),
+        type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg'),
+        size: finalStat.size,
+        updatedAt: Date.now()
+      };
     }
   }
 
@@ -510,20 +594,43 @@ function saveDefaults(payload = {}) {
 function loadDefaults() {
   const config = safeJsonRead(settingsPath(), {}) || {};
   let jingle = config.jingle || null;
+  let cover = config.cover || null;
+  let repaired = false;
 
-  if (!jingle || !jingle.path || !fs.existsSync(jingle.path)) {
-    jingle = discoverDefaultJingle();
-    if (jingle) {
+  try {
+    if (!jingle || !jingle.path || !fs.existsSync(jingle.path) || fs.statSync(jingle.path).size < 128) {
+      jingle = discoverDefaultJingle();
       config.jingle = jingle;
-      try { safeJsonWrite(settingsPath(), config); } catch (_) {}
+      repaired = true;
     }
+  } catch (_) {
+    jingle = discoverDefaultJingle();
+    config.jingle = jingle;
+    repaired = true;
+  }
+
+  try {
+    if (!cover || !cover.path || !fs.existsSync(cover.path) || fs.statSync(cover.path).size < 32) {
+      cover = discoverDefaultCover();
+      config.cover = cover;
+      repaired = true;
+    }
+  } catch (_) {
+    cover = discoverDefaultCover();
+    config.cover = cover;
+    repaired = true;
+  }
+
+  if (repaired) {
+    try { safeJsonWrite(settingsPath(), config); } catch (_) {}
   }
 
   return {
     ...config,
     jingle,
+    cover,
     jingleData: jingle ? attachmentFromFile(jingle.path, jingle.type || 'audio/mpeg', jingle.name) : null,
-    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg', config.cover.name) : null
+    coverData: cover ? attachmentFromFile(cover.path, cover.type || 'image/jpeg', cover.name) : null
   };
 }
 
@@ -552,7 +659,7 @@ function saveProfile(payload = {}) {
     if (data && data.length) {
       const ext = path.extname(payload.jingle.name || '') || '.mp3';
       const dest = path.join(dir, 'vinheta' + ext.toLowerCase());
-      fs.writeFileSync(dest, data);
+      writePersistentFile(dest, data, 'vinheta do perfil');
       config.jingle = { path: dest, name: payload.jingle.name || path.basename(dest), type: payload.jingle.type || 'audio/mpeg' };
     }
   }
@@ -562,7 +669,7 @@ function saveProfile(payload = {}) {
     if (data && data.length) {
       const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
       const dest = path.join(dir, 'capa' + ext);
-      fs.writeFileSync(dest, data);
+      writePersistentFile(dest, data, 'capa do perfil');
       config.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || 'image/jpeg' };
     }
   }
