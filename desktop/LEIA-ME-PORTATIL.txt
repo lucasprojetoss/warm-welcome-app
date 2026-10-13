@@ -22,10 +22,16 @@ PORTABILIDADE:
   LucasGravacoes-Dados
 
 ATUALIZACOES:
-- Se o computador tiver Git e a copia tiver sido criada como repositorio Git,
-  o launcher tenta atualizar antes de abrir.
-- Sem Git ou sem internet, ele abre a versao que ja esta no HD.
+- A atualizacao automatica do portatil so e tentada quando o computador possui
+  Git + Node.js + npm. Assim, as dependencias tambem podem ser ajustadas.
+- Em outro computador sem Node.js, ele simplesmente abre a versao que ja esta
+  pronta no HD, sem arriscar uma atualizacao incompleta.
+- Sem internet, ele abre a versao que ja esta no HD.
 
 IMPORTANTE:
 - Nao remova o HD enquanto houver lote processando ou salvando.
 - Espere o lote terminar e feche o Lucas Gravacoes antes de ejetar o disco.
+
+CODIFICADOR MP3:
+- O preparador instala o lamejs no proprio HD para a finalizacao de MP3 funcionar offline.
+- A internet fica apenas como fallback quando o arquivo local nao estiver disponivel.
