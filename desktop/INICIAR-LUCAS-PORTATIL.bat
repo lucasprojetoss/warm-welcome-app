@@ -14,52 +14,15 @@ echo ==========================================>>"%LOG%"
 echo %date% %time% - Abrindo Lucas Gravacoes PORTATIL>>"%LOG%"
 echo Raiz: %LUCAS_PORTABLE_ROOT%>>"%LOG%"
 
-set "HAS_NODE=0"
-set "HAS_NPM=0"
-set "HAS_GIT=0"
-where node >nul 2>nul
-if not errorlevel 1 set "HAS_NODE=1"
-where npm >nul 2>nul
-if not errorlevel 1 set "HAS_NPM=1"
-where git >nul 2>nul
-if not errorlevel 1 set "HAS_GIT=1"
-
-rem So atualiza o codigo quando este computador tambem consegue
-rem ajustar dependencias. Em PC sem Node, abre a versao pronta do HD.
-if exist "%LUCAS_PORTABLE_ROOT%\.git" (
-  if "%HAS_GIT%%HAS_NODE%%HAS_NPM%"=="111" (
-    echo %date% %time% - Verificando atualizacao segura>>"%LOG%"
-    git -C "%LUCAS_PORTABLE_ROOT%" pull --ff-only --quiet >>"%LOG%" 2>&1
-  ) else (
-    echo %date% %time% - Atualizacao ignorada: ambiente sem Git/Node/npm completos>>"%LOG%"
-  )
-)
-
-set "NEED_INSTALL=0"
-if not exist "%ELECTRON%" set "NEED_INSTALL=1"
-if not exist "%~dp0node_modules\lamejs\lame.min.js" set "NEED_INSTALL=1"
-
-if "%NEED_INSTALL%"=="1" (
-  if not "%HAS_NODE%%HAS_NPM%"=="11" (
-    if not exist "%ELECTRON%" goto :runtime_missing
-    echo %date% %time% - lamejs local ausente; continuando com fallback online>>"%LOG%"
-    goto :launch
-  )
-  echo %date% %time% - Ajustando dependencias portateis>>"%LOG%"
-  call npm install --no-audit --no-fund --prefer-offline >>"%LOG%" 2>&1
-  if errorlevel 1 (
-    if not exist "%ELECTRON%" goto :runtime_missing
-    echo %date% %time% - npm falhou; usando runtime existente>>"%LOG%"
-  )
-)
-
-:launch
 if not exist "%ELECTRON%" goto :runtime_missing
+
+rem O modo portatil nao atualiza por Git.
+rem Use o botao "Atualizar portatil" dentro do programa.
 echo %date% %time% - Iniciando Electron portatil>>"%LOG%"
 start "" "%ELECTRON%" "%~dp0"
 exit /b 0
 
 :runtime_missing
 echo %date% %time% - ERRO: Electron portatil nao esta preparado>>"%LOG%"
-powershell -NoProfile -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('O Lucas Gravacoes Portatil ainda nao foi preparado neste HD. Conecte o HD ao computador onde o Node.js esta instalado e execute PREPARAR-LUCAS-GRAVACOES-PORTATIL.bat uma vez.','Lucas Gravacoes Portatil','OK','Error')" >nul 2>nul
+powershell -NoProfile -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('O Lucas Gravacoes Portatil ainda nao foi preparado neste HD. Execute PREPARAR-LUCAS-GRAVACOES-PORTATIL.bat em um computador com Node.js e internet.','Lucas Gravacoes Portatil','OK','Error')" >nul 2>nul
 exit /b 1
