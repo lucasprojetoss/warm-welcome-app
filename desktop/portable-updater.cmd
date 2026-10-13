@@ -66,7 +66,7 @@ if not exist "%SOURCE%\desktop\node_modules\electron\dist\electron.exe" (
   goto end
 )
 
-for /f "usebackq tokens=2 delims=:, " %%V in (`findstr /i /c:"\"version\"" "%SOURCE%\desktop\package.json"`) do (
+for /f "tokens=2 delims=:, " %%V in ('findstr /i /c:"\"version\"" "%SOURCE%\desktop\package.json"') do (
   set "NEWVER=%%~V"
   goto got_newver
 )
@@ -83,7 +83,7 @@ if %RC% GEQ 8 (
   goto end
 )
 
-for /f "usebackq tokens=2 delims=:, " %%V in (`findstr /i /c:"\"version\"" "%ROOT%\desktop\package.json"`) do (
+for /f "tokens=2 delims=:, " %%V in ('findstr /i /c:"\"version\"" "%ROOT%\desktop\package.json"') do (
   set "INSTVER=%%~V"
   goto got_instver
 )
