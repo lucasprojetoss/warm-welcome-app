@@ -14,29 +14,47 @@ echo ==========================================>>"%LOG%"
 echo %date% %time% - Abrindo Lucas Gravacoes PORTATIL>>"%LOG%"
 echo Raiz: %LUCAS_PORTABLE_ROOT%>>"%LOG%"
 
-rem Atualizacao e opcional. Sem Git, o programa abre a versao que ja esta no HD.
+set "HAS_NODE=0"
+set "HAS_NPM=0"
+set "HAS_GIT=0"
+where node >nul 2>nul
+if not errorlevel 1 set "HAS_NODE=1"
+where npm >nul 2>nul
+if not errorlevel 1 set "HAS_NPM=1"
+where git >nul 2>nul
+if not errorlevel 1 set "HAS_GIT=1"
+
+rem So atualiza o codigo quando este computador tambem consegue
+rem ajustar dependencias. Em PC sem Node, abre a versao pronta do HD.
 if exist "%LUCAS_PORTABLE_ROOT%\.git" (
-  where git >nul 2>nul
-  if not errorlevel 1 (
-    echo %date% %time% - Verificando atualizacao>>"%LOG%"
+  if "%HAS_GIT%%HAS_NODE%%HAS_NPM%"=="111" (
+    echo %date% %time% - Verificando atualizacao segura>>"%LOG%"
     git -C "%LUCAS_PORTABLE_ROOT%" pull --ff-only --quiet >>"%LOG%" 2>&1
+  ) else (
+    echo %date% %time% - Atualizacao ignorada: ambiente sem Git/Node/npm completos>>"%LOG%"
   )
 )
 
-rem Depois de preparado, Node nao e necessario para abrir.
-if not exist "%ELECTRON%" (
-  echo %date% %time% - Runtime Electron ausente. Tentando preparar.>>"%LOG%"
-  where node >nul 2>nul
-  if errorlevel 1 goto :runtime_missing
-  where npm >nul 2>nul
-  if errorlevel 1 goto :runtime_missing
+set "NEED_INSTALL=0"
+if not exist "%ELECTRON%" set "NEED_INSTALL=1"
+if not exist "%~dp0node_modules\lamejs\lame.min.js" set "NEED_INSTALL=1"
 
+if "%NEED_INSTALL%"=="1" (
+  if not "%HAS_NODE%%HAS_NPM%"=="11" (
+    if not exist "%ELECTRON%" goto :runtime_missing
+    echo %date% %time% - lamejs local ausente; continuando com fallback online>>"%LOG%"
+    goto :launch
+  )
+  echo %date% %time% - Ajustando dependencias portateis>>"%LOG%"
   call npm install --no-audit --no-fund --prefer-offline >>"%LOG%" 2>&1
-  if errorlevel 1 goto :runtime_missing
+  if errorlevel 1 (
+    if not exist "%ELECTRON%" goto :runtime_missing
+    echo %date% %time% - npm falhou; usando runtime existente>>"%LOG%"
+  )
 )
 
+:launch
 if not exist "%ELECTRON%" goto :runtime_missing
-
 echo %date% %time% - Iniciando Electron portatil>>"%LOG%"
 start "" "%ELECTRON%" "%~dp0"
 exit /b 0
