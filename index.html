@@ -72,6 +72,7 @@ syncDesktopInfo();
 let lastPreviewUrl=null,originalPreviewUrl=null,previewEntries=[],exportedFiles=[],cancelRequested=false,processing=false;
 let insertionPreviewUrl=null,insertionMixUrl=null,insertionPoint=null,insertionDuration=0;let lastAutoAnalysis=null;let defaultJingleFile=null;let previewSongStates=[];let previewAuthorized=false;let preparedPreviews=[];let previewBatchToken=0;let previewPreparing=false;let autoFinalizeQueue=[],pipelineResolvers=[],previewProductionDone=false,autoFinalizeActive=false;
 let desktopTracks=[],desktopFolder=null,replaceOriginals=true,resumeState=null,resumedCompletedPaths=[],batchOriginalTotal=0,finalizedCount=0,currentWork='Aguardando',batchCompleted=false,activeBatchSettings=null;
+let batchQueueLots=[],queueRunning=false,queueStopRequested=false,currentQueueLotId=null,queueBatchResolver=null,queueBatchErrors=0;
 const isElectron=()=>!!(window.lucasDesktop&&window.lucasDesktop.isElectron);
 const activeJingle=()=>($('jingle').files&&$('jingle').files[0])||defaultJingleFile;
 const tracks=()=>desktopTracks.length?desktopTracks:Array.from($('tracks').files).slice(0,100);
@@ -92,6 +93,83 @@ function makeDesktopFile(meta){
   };
 }
 
+function queueStatusLabel(status){return ({waiting:'AGUARDANDO',processing:'PROCESSANDO',completed:'CONCLUÍDO ✓',error:'ERRO',cancelled:'CANCELADO'})[status]||String(status||'AGUARDANDO').toUpperCase()}
+function renderBatchQueue(){
+  if(!isElectron()||!$('batchQueueList'))return;
+  const box=$('batchQueueList');box.replaceChildren();
+  if(!batchQueueLots.length){
+    const empty=document.createElement('div');empty.className='queueEmpty';empty.textContent='Adicione a primeira pasta à fila.';box.append(empty);
+    $('queueStatus').textContent='Nenhum lote na fila.';
+    $('startQueue').disabled=true;
+    return
+  }
+  for(const lot of batchQueueLots){
+    const card=document.createElement('div');card.className='queueLotCard';
+    const main=document.createElement('div');main.className='queueLotMain';
+    const title=document.createElement('div');title.className='queueLotTitle';
+    const strong=document.createElement('strong');strong.textContent=lot.name||'Lote';
+    const badge=document.createElement('span');badge.className='queueLotStatus '+(lot.status||'waiting');badge.textContent=queueStatusLabel(lot.status);
+    title.append(strong,badge);
+    const folder=document.createElement('div');folder.className='queueLotFolder';folder.textContent=lot.folder||'';
+    const meta=document.createElement('div');meta.className='queueLotMeta';meta.textContent=(lot.completedCount||0)+' de '+(lot.fileCount||0)+' músicas • '+Math.round(lot.progress||0)+'%'+(lot.error?' • '+lot.error:'');
+    main.append(title,folder,meta);
+
+    const actions=document.createElement('div');actions.className='queueLotButtons';
+    if(lot.status!=='processing'){
+      const remove=document.createElement('button');remove.type='button';remove.className='secondaryBtn';remove.textContent='Remover';
+      remove.addEventListener('click',()=>removeQueueLotFromUi(lot.id));
+      actions.append(remove);
+    }
+
+    const progress=document.createElement('progress');progress.className='queueLotProgress';progress.max=100;progress.value=Math.max(0,Math.min(100,Number(lot.progress)||0));
+    card.append(main,actions,progress);box.append(card)
+  }
+  const waiting=batchQueueLots.filter(l=>l.status==='waiting').length,processingNow=batchQueueLots.filter(l=>l.status==='processing').length,done=batchQueueLots.filter(l=>l.status==='completed').length;
+  $('queueStatus').textContent=(queueRunning?'Fila automática ativa • ':'')+waiting+' aguardando • '+processingNow+' processando • '+done+' concluído'+(done===1?'':'s');
+  $('startQueue').disabled=queueRunning||!batchQueueLots.some(l=>l.status==='waiting')
+}
+async function refreshBatchQueue(){
+  if(!isElectron())return;
+  try{batchQueueLots=await window.lucasDesktop.listQueueLots();renderBatchQueue()}catch(e){$('queueStatus').textContent='Não foi possível carregar a fila: '+e.message}
+}
+function patchQueueLotLocal(id,patch){
+  const lot=batchQueueLots.find(x=>x.id===id);if(!lot)return;
+  Object.assign(lot,patch);renderBatchQueue()
+}
+async function persistQueueLotProgress(id,patch){
+  if(!isElectron()||!id)return;
+  patchQueueLotLocal(id,patch);
+  try{
+    const updated=await window.lucasDesktop.updateQueueLot(id,patch);
+    const idx=batchQueueLots.findIndex(x=>x.id===id);if(idx>=0)batchQueueLots[idx]=updated;
+    renderBatchQueue()
+  }catch(e){console.error('Fila:',e)}
+}
+async function removeQueueLotFromUi(id){
+  if(queueRunning&&id===currentQueueLotId)return;
+  try{await window.lucasDesktop.removeQueueLot(id);batchQueueLots=batchQueueLots.filter(x=>x.id!==id);renderBatchQueue()}catch(e){$('queueStatus').textContent='Não foi possível remover o lote: '+e.message}
+}
+async function addCurrentLotToQueue(){
+  if(!isElectron())return;
+  const files=tracks(),jingle=activeJingle();
+  if(!desktopFolder||!files.length)throw Error('Selecione primeiro uma pasta com músicas.');
+  if(!jingle)throw Error('Escolha uma vinheta ou carregue a vinheta padrão.');
+  const coverFile=$('defaultCover').files&&$('defaultCover').files[0];
+  const cover=coverFile?{blob:coverFile,name:coverFile.name,type:coverFile.type}:defaultMetadata.cover;
+  const settings={
+    insertionMode,manualInsertTime,manualDuckDb,replaceOriginals:$('replaceOriginals').checked,
+    metadata:{artist:$('defaultArtist').value.trim(),composer:$('defaultComposer').value.trim(),album:$('defaultAlbum').value.trim()}
+  };
+  const payload={
+    name:$('queueLotName').value.trim(),
+    folder:desktopFolder,
+    settings,
+    jingle:await blobPayload(jingle,jingle.name,jingle.type)
+  };
+  if(cover?.blob)payload.cover=await blobPayload(cover.blob,cover.name,cover.type);
+  const lot=await window.lucasDesktop.addQueueLot(payload);
+  batchQueueLots.push(lot);$('queueLotName').value='';renderBatchQueue();
+}
 function currentBatchTotal(){return batchOriginalTotal||tracks().length}
 function updateDashboard(){
   const total=currentBatchTotal(),previewReady=previewSongStates.filter(x=>x.status==='ready').length;
