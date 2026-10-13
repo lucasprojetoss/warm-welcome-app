@@ -133,6 +133,15 @@ jobs:
             throw "O abridor portatil nao foi incluido."
           }
 
+          if (!(Test-Path (Join-Path $portableRoot 'desktop\portable-updater.cmd'))) {
+            throw "O atualizador CMD nao foi incluido no pacote."
+          }
+
+          $builtPackage = Get-Content (Join-Path $portableRoot 'desktop\package.json') -Raw | ConvertFrom-Json
+          if ([string]$builtPackage.version -ne $version) {
+            throw "A versao dentro do pacote nao confere com a versao do build."
+          }
+
           & 7z.exe a -tzip "$zip" "$portableRoot"
           if ($LASTEXITCODE -ne 0) {
             throw "Falha ao compactar pacote portatil."
@@ -159,6 +168,11 @@ jobs:
           gh release upload portable-latest "$env:PORTABLE_ZIP#LucasGravacoes-Portable.zip" --clobber
           if ($LASTEXITCODE -ne 0) {
             throw "Nao foi possivel publicar LucasGravacoes-Portable.zip."
+          }
+
+          gh api "repos/$env:GITHUB_REPOSITORY/git/refs/tags/portable-latest" -X PATCH -f sha="$env:GITHUB_SHA" -F force=true *> $null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Nao foi possivel alinhar a tag portable-latest com o build atual."
           }
 
           $notes = "version=$env:PORTABLE_VERSION`nPacote automatico usado pelo botao Atualizar portatil."
