@@ -26,6 +26,30 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Validar codigo critico
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          node --check "$env:GITHUB_WORKSPACE\desktop\main.cjs"
+          if ($LASTEXITCODE -ne 0) { throw "desktop/main.cjs possui erro de sintaxe." }
+
+          node --check "$env:GITHUB_WORKSPACE\desktop\preload.cjs"
+          if ($LASTEXITCODE -ne 0) { throw "desktop/preload.cjs possui erro de sintaxe." }
+
+          $package = Get-Content "$env:GITHUB_WORKSPACE\desktop\package.json" -Raw | ConvertFrom-Json
+          $version = [string]$package.version
+          $index = Get-Content "$env:GITHUB_WORKSPACE\index.html" -Raw
+          $main = Get-Content "$env:GITHUB_WORKSPACE\desktop\main.cjs" -Raw
+          $updater = "$env:GITHUB_WORKSPACE\desktop\portable-updater.cmd"
+
+          if (!(Test-Path $updater)) { throw "portable-updater.cmd ausente." }
+          if ($index -notmatch [regex]::Escape("v$version")) { throw "Versao visual nao confere com package.json." }
+          if ($index -notmatch [regex]::Escape("APP_VERSION='$version'")) { throw "APP_VERSION nao confere com package.json." }
+          if ($main -notmatch [regex]::Escape("version: '$version'")) { throw "Versao interna nao confere com package.json." }
+
+          Write-Host "Validacao critica OK. Versao:" $version
+
       - name: Instalar dependencias do desktop
         shell: pwsh
         run: |
