@@ -55,7 +55,406 @@
 
 .batchDashboard{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:14px 0 4px}.batchStat{background:#111916;border:1px solid #33433c;border-radius:9px;padding:9px 11px}.batchStat small{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#82938b}.batchStat strong{display:block;margin-top:3px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.batchStat.active strong{color:#9ed2ba}.desktopFolderBox,.profileBox,.resumeBox,.diagnosticBox{border:1px solid #35463f;border-radius:10px;background:#101714;padding:13px;margin:12px 0}.desktopFolderBox[hidden],.resumeBox[hidden]{display:none!important}.folderPath{font-size:11px;overflow-wrap:anywhere;margin:7px 0 0}.profileControls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.profileActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.metadataConfirm{display:flex;justify-content:flex-end;margin-top:16px}.replaceToggle{display:flex;align-items:center;gap:8px;margin:12px 0}.replaceToggle input{width:auto}.diagnosticBox pre{max-height:260px;overflow:auto;white-space:pre-wrap;font-size:10px;background:#0b100e;border-radius:7px;padding:9px;color:#aebcb5}.desktopOnly[hidden]{display:none!important}
 @media(max-width:900px){.batchDashboard{grid-template-columns:repeat(2,minmax(0,1fr))}.batchDashboard .batchStat:last-child{grid-column:1/-1}.profileControls{grid-template-columns:1fr}}
-.batchQueueBox{border:1px solid #3c4c45;background:linear-gradient(180deg,#17211d,#121916);border-radius:12px;padding:16px;margin:16px 0}.batchQueueHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.batchQueueHead h2{margin:0}.batchQueueActions{display:flex;gap:8px;flex-wrap:wrap}.batchQueueList{display:grid;gap:9px;margin-top:12px}.queueLotCard{border:1px solid #33413b;border-radius:10px;background:#101613;padding:11px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center}.queueLotMain{min-width:0}.queueLotTitle{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.queueLotTitle strong{font-size:13px}.queueLotFolder{font-size:11px;color:#91a099;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}.queueLotMeta{font-size:11px;color:#a8b5af;margin-top:4px}.queueLotStatus{font-size:10px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:4px 8px;background:#2d3833;color:#c8d3ce}.queueLotStatus.processing{background:#564a25;color:#f6e7ab}.queueLotStatus.completed{background:#25503f;color:#d8f3e7}.queueLotStatus.error{background:#592f2f;color:#ffd4d4}.queueLotStatus.cancelled{background:#484848;color:#ddd}.queueLotProgress{grid-column:1/-1;height:8px;width:100%}.queueLotButtons{display:flex;gap:6px;justify-content:flex-end}.queueLotButtons button{padding:6px 9px;font-size:11px}.queueEmpty{padding:12px;border:1px dashed #3b4843;border-radius:9px;color:#8e9d96;text-align:center}@media(max-width:700px){.queueLotCard{grid-template-columns:1fr}.queueLotButtons{justify-content:flex-start}.batchQueueActions{width:100%}.batchQueueActions button{flex:1}}</style><script defer src="./desktop/node_modules/lamejs/lame.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js'"></script></head><body><main><header><div class="muted">STUDIO VOX PRODUÇÕES</div><h1>🎙️ Lucas Gravações <span id="appVersion" class="versionBadge">v1.4.2</span></h1><p class="muted">Auto Vinhetas • Processamento em lote</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button id="installApp" type="button" hidden>Instalar no computador</button><button id="enableNotifications" type="button">Ativar notificações</button><button id="voiceAlert" type="button">Voz: ligada</button><button id="portableUpdate" type="button" hidden>↻ Atualizar portátil</button><span id="portableUpdateStatus" class="muted" hidden style="align-self:center;font-size:12px"></span></div></header><div id="batchDashboard" class="batchDashboard"><div class="batchStat"><small>Lote</small><strong id="dashTotal">0 músicas</strong></div><div class="batchStat"><small>Prévia</small><strong id="dashPreview">0 prontas</strong></div><div class="batchStat"><small>Finalizadas</small><strong id="dashFinalized">0 prontas</strong></div><div class="batchStat"><small>Processando</small><strong id="dashCurrent">Aguardando</strong></div><div class="batchStat active"><small>Segundo plano</small><strong id="dashBackground">PRONTO</strong></div></div><div class="studioShell"><aside class="studioMenu"><div class="consoleBrand"><span class="recDot"></span><strong>PRODUÇÃO</strong><small>Lucas Gravações</small></div><nav class="steps" aria-label="Etapas"><button type="button" class="step active" data-step="1"><b>01</b><span>Músicas<small>Pasta, perfil e vinheta</small></span></button><button type="button" class="step" data-step="2"><b>02</b><span>Metadados<small>Confirmar padrão</small></span></button><button type="button" class="step" data-step="3"><b>03</b><span>Prévia da vinheta<small>Análise automática</small></span></button><button type="button" class="step" data-step="4"><b>04</b><span>Finalização<small>Salvar na pasta</small></span></button></nav><div class="consoleStatus"><i></i> SISTEMA PRONTO</div></aside><div class="studioWorkspace"><div class="studioLeft wizardPane" data-pane="1">
+.batchQueueBox{border:1px solid #3c4c45;background:linear-gradient(180deg,#17211d,#121916);border-radius:12px;padding:16px;margin:16px 0}.batchQueueHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.batchQueueHead h2{margin:0}.batchQueueActions{display:flex;gap:8px;flex-wrap:wrap}.batchQueueList{display:grid;gap:9px;margin-top:12px}.queueLotCard{border:1px solid #33413b;border-radius:10px;background:#101613;padding:11px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center}.queueLotMain{min-width:0}.queueLotTitle{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.queueLotTitle strong{font-size:13px}.queueLotFolder{font-size:11px;color:#91a099;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}.queueLotMeta{font-size:11px;color:#a8b5af;margin-top:4px}.queueLotStatus{font-size:10px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:4px 8px;background:#2d3833;color:#c8d3ce}.queueLotStatus.processing{background:#564a25;color:#f6e7ab}.queueLotStatus.completed{background:#25503f;color:#d8f3e7}.queueLotStatus.error{background:#592f2f;color:#ffd4d4}.queueLotStatus.cancelled{background:#484848;color:#ddd}.queueLotProgress{grid-column:1/-1;height:8px;width:100%}.queueLotButtons{display:flex;gap:6px;justify-content:flex-end}.queueLotButtons button{padding:6px 9px;font-size:11px}.queueEmpty{padding:12px;border:1px dashed #3b4843;border-radius:9px;color:#8e9d96;text-align:center}@media(max-width:700px){.queueLotCard{grid-template-columns:1fr}.queueLotButtons{justify-content:flex-start}.batchQueueActions{width:100%}.batchQueueActions button{flex:1}}
+/* =========================================================
+   LUCAS GRAVACOES 1.5 - STUDIO PRO VISUAL
+   Camada visual: preserva IDs, eventos e lógica existente.
+   ========================================================= */
+:root{
+  --studio-bg:#09110f;
+  --studio-bg2:#0c1512;
+  --studio-panel:#101b17;
+  --studio-panel2:#14211c;
+  --studio-panel3:#182720;
+  --studio-line:#2c4037;
+  --studio-line-strong:#3f5f50;
+  --studio-text:#eef7f2;
+  --studio-muted:#8fa59a;
+  --studio-green:#48e38b;
+  --studio-green2:#7df0ad;
+  --studio-blue:#4fa7ff;
+  --studio-amber:#f2b74f;
+  --studio-red:#ef6f6f;
+  --studio-glow:rgba(72,227,139,.22);
+}
+html{background:var(--studio-bg)}
+body{
+  background:
+    radial-gradient(circle at 18% -10%,rgba(72,227,139,.10),transparent 34%),
+    radial-gradient(circle at 92% 8%,rgba(79,167,255,.07),transparent 26%),
+    linear-gradient(180deg,#0b1411 0%,#08100e 100%)!important;
+  color:var(--studio-text);
+}
+body:before{
+  content:"";
+  position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background:
+    linear-gradient(rgba(255,255,255,.012) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.009) 1px,transparent 1px);
+  background-size:42px 42px;
+  mask-image:linear-gradient(to bottom,rgba(0,0,0,.65),transparent 82%);
+}
+main{width:min(98vw,1640px);padding:18px 20px 40px}
+
+/* CABECALHO */
+header{
+  min-height:88px;
+  margin:0 -20px 14px;
+  padding:17px 30px 18px;
+  border-bottom:1px solid #24362f!important;
+  background:
+    linear-gradient(90deg,rgba(18,31,26,.96),rgba(9,16,14,.92)),
+    radial-gradient(circle at 20% 0,rgba(72,227,139,.10),transparent 38%);
+  box-shadow:0 10px 30px rgba(0,0,0,.24),inset 0 -1px rgba(255,255,255,.025);
+}
+header:after{
+  content:"STUDIO";
+  right:29px;top:14px;
+  padding:4px 9px;
+  color:#8da299;
+  border-color:#30443b;
+  background:#0c1512;
+  letter-spacing:.18em;
+}
+header h1{
+  font-size:clamp(26px,3vw,38px);
+  font-weight:760;
+  letter-spacing:-.035em;
+  text-shadow:0 0 22px rgba(72,227,139,.08);
+}
+header h1:first-letter{color:#f3fbf7}
+.versionBadge{
+  color:#b9c9c1;
+  background:#101a16;
+  border-color:#355046;
+  box-shadow:inset 0 1px rgba(255,255,255,.04);
+}
+header .muted{letter-spacing:.04em}
+header button{
+  background:linear-gradient(180deg,#15221d,#0d1613)!important;
+  color:#dfe9e4!important;
+  border:1px solid #334b40!important;
+  border-radius:9px!important;
+  padding:9px 13px!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.045),0 5px 14px rgba(0,0,0,.18)!important;
+}
+header button:hover:not(:disabled){
+  border-color:#5b9478!important;
+  background:linear-gradient(180deg,#1b3127,#12231c)!important;
+  color:#f2fff8!important;
+  box-shadow:0 0 0 1px rgba(72,227,139,.08),0 0 18px rgba(72,227,139,.10)!important;
+}
+
+/* PAINEL DE STATUS */
+.batchDashboard{
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:11px;
+  margin:12px 0 16px;
+}
+.batchStat{
+  position:relative;overflow:hidden;
+  min-height:78px;
+  padding:13px 14px 12px;
+  background:linear-gradient(145deg,#13201b,#0e1714)!important;
+  border:1px solid #2c4037!important;
+  border-radius:12px!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.03),0 10px 24px rgba(0,0,0,.16);
+}
+.batchStat:before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:#39564a;
+}
+.batchStat.active:before{background:var(--studio-green);box-shadow:0 0 16px var(--studio-green)}
+.batchStat small{color:#7f958a!important;font-size:9px!important;letter-spacing:.13em!important}
+.batchStat strong{font-size:16px!important;color:#eff8f3}
+.batchStat.active strong{color:var(--studio-green2)!important}
+
+/* ESTRUTURA */
+.studioShell{grid-template-columns:270px minmax(0,1fr)!important;gap:14px!important}
+.studioMenu{
+  top:12px!important;
+  padding:14px!important;
+  background:
+    linear-gradient(180deg,rgba(18,31,26,.98),rgba(8,15,13,.98))!important;
+  border:1px solid #31463d!important;
+  border-radius:14px!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035),0 16px 34px rgba(0,0,0,.24)!important;
+}
+.consoleBrand{
+  padding:9px 8px 15px!important;
+  border-bottom-color:#2b4036!important;
+}
+.consoleBrand strong{color:#edf8f2;font-size:13px!important}
+.consoleBrand small{color:#779084!important}
+.consoleStatus{
+  border-top-color:#2b4036!important;
+  color:#71877c!important;
+}
+.consoleStatus i{
+  background:var(--studio-green)!important;
+  box-shadow:0 0 12px rgba(72,227,139,.8)!important;
+}
+
+/* CARTOES LATERAIS */
+.studioMenu .steps{
+  grid-template-columns:1fr!important;
+  gap:10px!important;
+}
+.studioMenu .steps .step{
+  position:relative;
+  min-height:96px!important;
+  aspect-ratio:auto!important;
+  display:grid!important;
+  grid-template-columns:46px minmax(0,1fr)!important;
+  grid-template-rows:auto auto!important;
+  align-items:center!important;
+  text-align:left!important;
+  padding:13px 14px!important;
+  border-radius:12px!important;
+  border:1px solid #2c4037!important;
+  background:linear-gradient(145deg,#13201b,#0d1713)!important;
+  overflow:hidden;
+  transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease,background .16s ease!important;
+}
+.studioMenu .steps .step:after{
+  content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;
+  border-radius:0 4px 4px 0;background:#31483e;
+}
+.studioMenu .steps .step:hover{
+  transform:translateY(-1px)!important;
+  border-color:#466657!important;
+  background:linear-gradient(145deg,#172820,#101c17)!important;
+}
+.studioMenu .steps .step b{
+  grid-row:1/3;
+  width:42px;height:42px;display:grid;place-items:center;
+  border-radius:11px;
+  background:#0c1512;
+  border:1px solid #31483e;
+  color:#8fa79b!important;
+  font-size:16px!important;
+}
+.studioMenu .steps .step span{
+  align-items:flex-start!important;
+  font-size:14px!important;
+}
+.studioMenu .steps .step small{
+  text-align:left!important;
+  color:#72877c!important;
+  margin-top:5px!important;
+}
+.studioMenu .steps .step.active{
+  border-color:#3a8b64!important;
+  background:
+    linear-gradient(145deg,rgba(30,81,58,.72),rgba(13,31,24,.96))!important;
+  box-shadow:0 0 0 1px rgba(72,227,139,.08),0 0 24px rgba(72,227,139,.08),inset 0 1px rgba(255,255,255,.04)!important;
+}
+.studioMenu .steps .step.active:after{
+  background:var(--studio-green);
+  box-shadow:0 0 14px rgba(72,227,139,.85);
+}
+.studioMenu .steps .step.active b{
+  color:var(--studio-green2)!important;
+  border-color:#4f8d6d;
+  box-shadow:inset 0 0 14px rgba(72,227,139,.09);
+}
+
+/* PAINEIS */
+.studioWorkspace section,
+.batchQueueBox,
+.desktopFolderBox,.profileBox,.resumeBox,.diagnosticBox,
+.insertionModeBox,.defaultJingleBox,.vinhetaCheck,
+.previewQueue,.finalSongRow{
+  background:
+    linear-gradient(160deg,rgba(19,32,27,.98),rgba(11,19,16,.98))!important;
+  border-color:#2c4137!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.025),0 10px 26px rgba(0,0,0,.14)!important;
+}
+.studioWorkspace section{
+  border-radius:13px!important;
+  padding:21px 22px!important;
+}
+.studioWorkspace h2{
+  display:flex;align-items:center;gap:8px;
+  font-size:17px!important;
+  color:#edf8f2!important;
+}
+.studioWorkspace h2:before{
+  content:"";
+  width:7px;height:7px;border-radius:50%;
+  background:var(--studio-green);
+  box-shadow:0 0 12px rgba(72,227,139,.7);
+}
+.notice{
+  border-left-color:#4adf89!important;
+  background:linear-gradient(90deg,rgba(72,227,139,.08),rgba(72,227,139,.015))!important;
+}
+
+/* CAMPOS */
+.studioWorkspace input[type=file],
+.studioWorkspace input[type=number],
+.studioWorkspace input[type=text],
+.studioWorkspace select{
+  min-height:42px;
+  background:#09110f!important;
+  color:#e8f4ee!important;
+  border:1px solid #30483d!important;
+  border-radius:9px!important;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.30)!important;
+}
+.studioWorkspace input:focus,.studioWorkspace select:focus{
+  border-color:#5eb786!important;
+  box-shadow:0 0 0 3px rgba(72,227,139,.08)!important;
+}
+label{color:#c9d8d0!important}
+
+/* BOTOES */
+.studioWorkspace button,.studioMenu button{
+  border-radius:9px!important;
+  transition:transform .14s ease,box-shadow .14s ease,background .14s ease,border-color .14s ease!important;
+}
+.studioWorkspace button{
+  background:linear-gradient(180deg,#2f9a66,#23784f)!important;
+  border:1px solid #53c887!important;
+  color:#f4fff8!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.15),0 7px 16px rgba(0,0,0,.16)!important;
+}
+.studioWorkspace button:hover:not(:disabled){
+  transform:translateY(-1px);
+  background:linear-gradient(180deg,#3cb879,#29845a)!important;
+  box-shadow:0 0 18px rgba(72,227,139,.14),inset 0 1px rgba(255,255,255,.18)!important;
+}
+.studioWorkspace button:active:not(:disabled){
+  transform:translateY(1px);
+  box-shadow:inset 0 3px 8px rgba(0,0,0,.24)!important;
+}
+.secondaryBtn,.queueLotButtons button.secondaryBtn{
+  background:linear-gradient(180deg,#1a2621,#121b17)!important;
+  border-color:#354b41!important;
+  color:#c8d6cf!important;
+}
+#startBatch{
+  min-width:250px;
+  min-height:48px;
+  font-size:15px;
+  letter-spacing:.015em;
+  background:linear-gradient(180deg,#4de48d,#2bb966)!important;
+  color:#06110b!important;
+  border-color:#76efaa!important;
+  box-shadow:0 8px 22px rgba(42,190,105,.18),inset 0 1px rgba(255,255,255,.35)!important;
+}
+#startBatch:hover:not(:disabled){
+  background:linear-gradient(180deg,#6aefa2,#35c875)!important;
+  box-shadow:0 0 22px rgba(72,227,139,.26),0 8px 22px rgba(0,0,0,.18)!important;
+}
+#portableUpdate{
+  position:relative;
+  border-color:#416a56!important;
+}
+#portableUpdate:not([hidden]):before{
+  content:"";display:inline-block;width:7px;height:7px;margin-right:7px;border-radius:50%;
+  background:#54e893;box-shadow:0 0 9px rgba(84,232,147,.8);
+}
+
+/* FILA */
+.batchQueueBox{padding:17px!important;border-radius:13px!important}
+.batchQueueHead{align-items:center!important}
+.queueLotCard{
+  position:relative;
+  border-color:#2b4036!important;
+  background:linear-gradient(90deg,#101a16,#0c1411)!important;
+  padding:12px 13px!important;
+  border-radius:10px!important;
+  transition:border-color .16s ease,transform .16s ease,background .16s ease;
+}
+.queueLotCard:hover{
+  transform:translateX(2px);
+  border-color:#3f5e50!important;
+  background:linear-gradient(90deg,#13221c,#0e1814)!important;
+}
+.queueLotStatus{
+  border:1px solid #415148;
+  background:#222e29!important;
+  color:#bcc9c3!important;
+  letter-spacing:.07em!important;
+}
+.queueLotStatus.processing{
+  color:#9fd0ff!important;background:rgba(51,126,194,.16)!important;border-color:#315f89!important;
+  box-shadow:0 0 12px rgba(79,167,255,.08);
+}
+.queueLotStatus.completed{
+  color:#9ef1bf!important;background:rgba(52,175,104,.14)!important;border-color:#34744f!important;
+}
+.queueLotStatus.error{
+  color:#ffb9b9!important;background:rgba(196,75,75,.14)!important;border-color:#744545!important;
+}
+.queueLotProgress,.miniProgress,progress{
+  overflow:hidden;border-radius:999px;background:#1a2721;
+}
+progress::-webkit-progress-bar{background:#18231e;border-radius:999px}
+progress::-webkit-progress-value{
+  background:linear-gradient(90deg,#31b76b,#58e798);
+  border-radius:999px;
+  box-shadow:0 0 10px rgba(72,227,139,.35);
+}
+
+/* TOAST / FEEDBACK */
+#toastStack{gap:10px!important}
+.miniToast{
+  background:linear-gradient(145deg,#18251f,#101814)!important;
+  border-color:#3e5a4d!important;
+  border-radius:11px!important;
+  box-shadow:0 14px 36px rgba(0,0,0,.34)!important;
+}
+#readyToast{
+  background:linear-gradient(145deg,#183126,#112019)!important;
+  border-color:#3f7a5d!important;
+  box-shadow:0 0 22px rgba(72,227,139,.12),0 14px 36px rgba(0,0,0,.34)!important;
+}
+
+/* AUDIO / DIAGNOSTICO */
+audio{border-radius:8px;opacity:.94}
+.diagnosticBox pre{
+  background:#07100d!important;
+  border:1px solid #23362e;
+  color:#9eb1a7!important;
+  border-radius:9px!important;
+}
+
+/* MICRO ANIMACOES */
+@keyframes studioPulse{
+  0%,100%{box-shadow:0 0 0 rgba(72,227,139,0)}
+  50%{box-shadow:0 0 14px rgba(72,227,139,.25)}
+}
+.batchStat.active:before,.consoleStatus i{animation:studioPulse 2.2s ease-in-out infinite}
+button:focus-visible{
+  outline:2px solid rgba(92,235,151,.8)!important;
+  outline-offset:2px!important;
+}
+
+/* RESPONSIVO */
+@media(max-width:1180px){
+  .studioShell{grid-template-columns:235px minmax(0,1fr)!important}
+  .batchDashboard{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media(max-width:900px){
+  main{width:100%;padding:12px 12px 30px}
+  header{margin:0 -12px 12px;padding:15px 16px}
+  .studioShell{grid-template-columns:1fr!important}
+  .studioMenu{position:static!important}
+  .studioMenu .steps{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+  .studioMenu .steps .step{min-height:82px!important;display:flex!important;flex-direction:column!important;text-align:center!important}
+  .studioMenu .steps .step b{width:34px;height:34px}
+  .studioMenu .steps .step span{align-items:center!important}
+  .studioMenu .steps .step small{text-align:center!important}
+}
+@media(max-width:680px){
+  .batchDashboard{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .studioMenu .steps{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  #startBatch{width:100%;min-width:0}
+}
+
+</style><script defer src="./desktop/node_modules/lamejs/lame.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js'"></script></head><body><main><header><div class="muted">STUDIO VOX PRODUÇÕES</div><h1>🎙️ Lucas Gravações <span id="appVersion" class="versionBadge">v1.5.0</span></h1><p class="muted">Auto Vinhetas • Processamento em lote</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button id="installApp" type="button" hidden>Instalar no computador</button><button id="enableNotifications" type="button">Ativar notificações</button><button id="voiceAlert" type="button">Voz: ligada</button><button id="portableUpdate" type="button" hidden>↻ Atualizar portátil</button><span id="portableUpdateStatus" class="muted" hidden style="align-self:center;font-size:12px"></span></div></header><div id="batchDashboard" class="batchDashboard"><div class="batchStat"><small>Lote</small><strong id="dashTotal">0 músicas</strong></div><div class="batchStat"><small>Prévia</small><strong id="dashPreview">0 prontas</strong></div><div class="batchStat"><small>Finalizadas</small><strong id="dashFinalized">0 prontas</strong></div><div class="batchStat"><small>Processando</small><strong id="dashCurrent">Aguardando</strong></div><div class="batchStat active"><small>Segundo plano</small><strong id="dashBackground">PRONTO</strong></div></div><div class="studioShell"><aside class="studioMenu"><div class="consoleBrand"><span class="recDot"></span><strong>PRODUÇÃO</strong><small>Lucas Gravações</small></div><nav class="steps" aria-label="Etapas"><button type="button" class="step active" data-step="1"><b>01</b><span>Músicas<small>Pasta, perfil e vinheta</small></span></button><button type="button" class="step" data-step="2"><b>02</b><span>Metadados<small>Confirmar padrão</small></span></button><button type="button" class="step" data-step="3"><b>03</b><span>Prévia da vinheta<small>Análise automática</small></span></button><button type="button" class="step" data-step="4"><b>04</b><span>Finalização<small>Salvar na pasta</small></span></button></nav><div class="consoleStatus"><i></i> SISTEMA PRONTO</div></aside><div class="studioWorkspace"><div class="studioLeft wizardPane" data-pane="1">
 <section><h2>1. Arquivos</h2><div class="grid"><div><label>Músicas (até 100 por lote)</label><div id="desktopFolderBox" class="desktopFolderBox desktopOnly" hidden><button id="selectMusicFolder" type="button">Selecionar pasta de músicas</button><p id="selectedFolder" class="folderPath muted">Nenhuma pasta selecionada.</p></div><div id="browserTrackPicker"><input id="tracks" type="file" accept="audio/*" multiple></div></div><div><label for="jingle">Vinheta</label><input id="jingle" type="file" accept="audio/*"><div class="defaultJingleBox"><div><strong>Vinheta padrão</strong><p id="defaultJingleStatus" class="muted">Carregando configuração...</p></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button id="saveDefaultJingle" type="button">Salvar atual como padrão</button><button id="removeDefaultJingle" type="button" class="secondaryBtn">Remover padrão</button></div></div></div></div><div id="resumeBox" class="resumeBox desktopOnly" hidden><strong>Lote interrompido encontrado</strong><p id="resumeInfo" class="muted">Há um lote que pode ser retomado.</p><button id="resumeBatch" type="button">Retomar lote</button></div><div id="files" class="muted" style="margin-top:12px">Nenhuma música selecionada.</div></section>
 <section id="batchQueueBox" class="batchQueueBox desktopOnly" hidden><div class="batchQueueHead"><div><h2>Fila automática de lotes</h2><p class="muted" style="margin:5px 0 0">Adicione várias pastas. O sistema processa um lote por vez e inicia o próximo automaticamente.</p></div><div class="batchQueueActions"><button id="addQueueLot" type="button">+ Adicionar lote atual</button><button id="startQueue" type="button">▶ Iniciar fila automática</button></div></div><label for="queueLotName">Nome do lote (opcional)</label><input id="queueLotName" type="text" placeholder="Ex.: Forró novo, Sertanejo, Paredão 01"><p id="queueStatus" class="muted">Nenhum lote na fila.</p><div id="batchQueueList" class="batchQueueList"><div class="queueEmpty">Adicione a primeira pasta à fila.</div></div></section>
 <section><div class="insertionModeBox"><div class="insertionModeHead"><div><strong>Modo da vinheta</strong><p id="insertionModeInfo" class="muted" style="margin:4px 0 0">Automático Inteligente: o sistema escolhe o melhor ponto sozinho.</p></div><button id="insertionModeToggle" type="button" aria-expanded="false">AUTOMÁTICO</button></div><div id="manualInsertionSettings" class="manualInsertionSettings" hidden><div class="grid"><div><label for="manualInsertTime">Tempo da entrada da vinheta (segundos)</label><input id="manualInsertTime" type="number" min="0" step=".1" value="30"></div><div><label for="manualDuckDb">Redução da música durante a vinheta: <span id="manualDuckValue">-4</span> dB</label><input id="manualDuckDb" type="range" min="-12" max="0" step="1" value="-4"></div></div><p class="muted" style="margin:8px 0 0">A vinheta permanece em 100%. A música volta ao volume original quando a vinheta termina.</p></div></div></section><section class="profileBox desktopOnly" id="profileBox" hidden><h2>Perfil de trabalho</h2><div class="profileControls"><div><label for="profileSelect">Perfil salvo</label><select id="profileSelect"><option value="">Nenhum perfil</option></select></div><button id="applyProfile" type="button" class="secondaryBtn">Aplicar perfil</button></div><label for="profileName">Salvar configuração atual como perfil</label><input id="profileName" type="text" placeholder="Ex.: Pendrive Paredão"><div class="profileActions"><button id="saveProfile" type="button">Salvar perfil</button><span id="profileStatus" class="muted"></span></div></section><div class="wizardActions"><span></span><div class="preparePreviewBox"><button id="preparePreview" type="button">OK — Ir para metadados</button><p id="preparePreviewStatus" class="muted">Escolha as músicas e confira o modo antes de continuar.</p></div></div></div><div class="studioCenter wizardPane" data-pane="3">
@@ -65,7 +464,7 @@
 <section><h2>2. Metadados padrão</h2><p class="notice">Configure uma vez. Estes dados serão gravados automaticamente dentro de todos os MP3 processados. O título da música não é alterado: o sistema preserva o título original do arquivo.</p><div class="grid"><div><label for="defaultArtist">Artista</label><input id="defaultArtist" type="text" placeholder="Ex.: Lucas Gravações"></div><div><label for="defaultComposer">Compositor</label><input id="defaultComposer" type="text" placeholder="Compositor padrão"></div><div><label for="defaultAlbum">Álbum</label><input id="defaultAlbum" type="text" placeholder="Álbum padrão"></div></div><label for="defaultCover">Capa padrão (JPG ou PNG)</label><input id="defaultCover" type="file" accept="image/jpeg,image/png"><div id="defaultCoverPreview" style="margin:12px 0"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button id="saveDefaultMetadata" type="button">Salvar como padrão</button><button id="removeDefaultCover" type="button" class="secondaryBtn">Remover capa</button></div><p id="defaultMetadataStatus" class="muted">Carregando configuração...</p><label class="replaceToggle desktopOnly" id="replaceToggleWrap" hidden><input id="replaceOriginals" type="checkbox" checked> Substituir os MP3 originais com segurança ao finalizar</label><details class="diagnosticBox desktopOnly" id="diagnosticBox" hidden><summary>Diagnóstico do sistema</summary><button id="refreshDiagnostics" type="button" class="secondaryBtn" style="margin-top:10px">Atualizar diagnóstico</button><pre id="diagnosticText">Aguardando...</pre></details><div class="metadataConfirm"><button id="startBatch" type="button">OK — Iniciar lote</button></div></section><div class="wizardActions"><button type="button" class="prevStep" data-prev="1">← Voltar às músicas</button><span></span></div></div>
 </div></div>
 <div id="toastStack" aria-live="polite" aria-atomic="false"></div><div id="readyToast" role="status" aria-live="polite" hidden><span class="recDot"></span><div><strong>Gravação pronta</strong><small>O lote terminou. Você já pode preparar o próximo.</small></div><button id="closeToast" type="button" aria-label="Fechar aviso">×</button></div></main><script>const $=id=>document.getElementById(id);
-const APP_VERSION='1.4.2';
+const APP_VERSION='1.5.0';
 function desktopProcessing(active){try{if(window.lucasDesktop&&window.lucasDesktop.isElectron)window.lucasDesktop.setProcessing(Boolean(active))}catch(e){}}
 let desktopInfoCache=null,portableUpdateBusy=false;
 async function syncDesktopInfo(){const badge=$('appVersion');if(!badge)return;badge.textContent='v'+APP_VERSION;try{if(window.lucasDesktop&&window.lucasDesktop.isElectron){const info=await window.lucasDesktop.getStatus();desktopInfoCache=info||null;if(info&&info.version)badge.textContent='v'+info.version+(info.portableMode?' • PORTÁTIL':'');badge.title=(info&&info.monitor?'Monitor '+info.monitor.width+'×'+info.monitor.height+' • zoom '+Math.round((info.zoomFactor||1)*100)+'%':'Versão desktop')+(info.portableMode?' • Dados no HD externo':'');if($('portableUpdate')){$('portableUpdate').hidden=!info?.portableMode;$('portableUpdateStatus').hidden=!info?.portableMode}}}catch(e){}}
