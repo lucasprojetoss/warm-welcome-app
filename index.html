@@ -484,6 +484,7 @@ async function runAutoFinalizer(token,jingle,files){
         setFinalSongProgress(job.i,30,'Prévia pronta • finalizando');
         await finalizePreparedSong(job,jingle,files)
       }catch(e){
+        if(currentQueueLotId)queueBatchErrors++;
         setFinalSongProgress(job.i,100,'Erro','error');
         showMiniToast('error','Erro ao finalizar',job.file.name+': '+e.message);
         const err=document.createElement('p');err.textContent=job.file.name+': '+e.message;err.style.color='#ffb4b4';$('results').append(err)
@@ -497,14 +498,23 @@ async function runAutoFinalizer(token,jingle,files){
       if(finalizedCount>=total&&total>0){
         batchCompleted=true;currentWork='Lote finalizado ✓';updateDashboard();
         await clearBatchCheckpoint();
-        showReadyNotice(total);
-        if(isElectron())window.lucasDesktop.notifyComplete({total,previewReady:previewSongStates.filter(x=>x.status==='ready').length,finalized:finalizedCount,percent:100,current:'Lote finalizado ✓',completed:true})
+        if(queueRunning&&currentQueueLotId){
+          const lot=batchQueueLots.find(x=>x.id===currentQueueLotId);
+          showMiniToast('final','Lote concluído',(lot?.name||'Lote')+' • '+finalizedCount+' música(s).')
+        }else{
+          showReadyNotice(total);
+          if(isElectron())window.lucasDesktop.notifyComplete({total,previewReady:previewSongStates.filter(x=>x.status==='ready').length,finalized:finalizedCount,percent:100,current:'Lote finalizado ✓',completed:true})
+        }
       }
     }
   }finally{
     if(token===previewBatchToken){
-      autoFinalizeActive=false;processing=false;desktopProcessing(false);activeBatchSettings=null;setBatchUiLocked(false);
-      $('cancelProcess').disabled=true;btn.disabled=false;btn.textContent='Reprocessar lote';updateDashboard()
+      const total=currentBatchTotal()||files.length;
+      const queueResult={completed:!cancelRequested&&finalizedCount>=total&&queueBatchErrors===0,cancelled:!!cancelRequested,errors:queueBatchErrors,finalized:finalizedCount,total};
+      autoFinalizeActive=false;processing=false;activeBatchSettings=null;
+      if(queueRunning){desktopProcessing(true)}else{desktopProcessing(false);setBatchUiLocked(false)}
+      $('cancelProcess').disabled=true;btn.disabled=false;btn.textContent='Reprocessar lote';updateDashboard();
+      if(currentQueueLotId)resolveQueueBatch(queueResult)
     }
   }
 }
@@ -586,6 +596,7 @@ async function prepareAllPreviews(){
         if(token!==previewBatchToken||!previewAuthorized||cancelRequested)break;
         enqueueAutoFinalize({i,file,music,point});
       }catch(e){
+        if(currentQueueLotId)queueBatchErrors++;
         setPreviewSongState(i,'error',100,'Erro');
         showMiniToast('error','Erro na prévia',file.name+': '+e.message);
       }
@@ -605,7 +616,12 @@ async function prepareAllPreviews(){
     if(ctx)await ctx.close();
     if(token===previewBatchToken){
       previewPreparing=false;
-      if(!autoFinalizeActive&&!processing){activeBatchSettings=null;setBatchUiLocked(false);desktopProcessing(false)}
+      if(!autoFinalizeActive&&!processing){
+        const total=currentBatchTotal()||files.length;
+        activeBatchSettings=null;
+        if(queueRunning){desktopProcessing(true)}else{setBatchUiLocked(false);desktopProcessing(false)}
+        if(currentQueueLotId)resolveQueueBatch({completed:false,cancelled:!!cancelRequested,errors:Math.max(1,queueBatchErrors),finalized:finalizedCount,total})
+      }
       btn.textContent='OK — Ir para metadados';
       updatePreparePreviewButton();
     }
@@ -840,7 +856,7 @@ async function encodeMixedMp3Worker(music,jingle,position,duckDb,gain,onProgress
 
 async function encodeMp3(rendered){let buffer=rendered&&rendered.buffer?rendered.buffer:rendered;const scale=rendered&&Number.isFinite(rendered.scale)?rendered.scale:1;if(!buffer||typeof buffer.getChannelData!=='function')throw Error('Áudio renderizado inválido para codificação MP3.');if(!window.lamejs||!window.lamejs.Mp3Encoder)throw Error('Codificador MP3 não carregou. Conecte-se à internet e atualize a página.');buffer=await ensureMp3CompatibleRate(buffer);const sr=buffer.sampleRate;const encoder=new lamejs.Mp3Encoder(2,sr,320),left=buffer.getChannelData(0),right=buffer.getChannelData(Math.min(1,buffer.numberOfChannels-1)),parts=[],chunk=1152;for(let i=0;i<buffer.length;i+=chunk){const n=Math.min(chunk,buffer.length-i),l=new Int16Array(n),r=new Int16Array(n);for(let j=0;j<n;j++){const x=Math.max(-1,Math.min(1,left[i+j]*scale)),y=Math.max(-1,Math.min(1,right[i+j]*scale));l[j]=x<0?Math.round(x*32768):Math.round(x*32767);r[j]=y<0?Math.round(y*32768):Math.round(y*32767)}const encoded=encoder.encodeBuffer(l,r);if(encoded.length)parts.push(new Uint8Array(encoded));if(i%(chunk*128)===0)await backgroundFriendlyYield()}const tail=encoder.flush();if(tail.length)parts.push(new Uint8Array(tail));return new Blob(parts,{type:'audio/mpeg'})}
 $('process').addEventListener('click',async()=>{const files=tracks(),jfile=activeJingle();if(processing||!files.length||!jfile)return;activeBatchSettings=captureBatchSettings();setBatchUiLocked(true);desktopProcessing(true);processing=true;cancelRequested=false;const btn=$('process');btn.disabled=true;btn.textContent='Reprocessando…';$('cancelProcess').disabled=false;clearFinalOutputs();let ctx;try{ctx=new AudioContext();const jingle=await decode(jfile,ctx);for(let i=0;i<files.length;i++){if(cancelRequested)break;const file=files[i];try{setFinalSongProgress(i,12,'Preparando');const music=await decode(file,ctx),prepared=preparedPreviews[i]&&preparedPreviews[i].file===file?preparedPreviews[i]:null,point=prepared?prepared.point:await chooseInsertionPoint(music,jingle);if(!Number.isFinite(point)||point<0||point+jingle.duration>music.duration)throw Error('Tempo de inserção inválido para esta música');await finalizePreparedSong({i,file,music,point},jingle,files)}catch(e){setFinalSongProgress(i,100,'Erro','error');showMiniToast('error','Erro ao finalizar',file.name+': '+e.message)}}$('status').textContent=cancelRequested?'Reprocessamento interrompido.':'Reprocessamento concluído.';if(!cancelRequested&&exportedFiles.length)showReadyNotice(exportedFiles.length)}catch(e){$('status').textContent='Erro: '+e.message}finally{if(ctx)await ctx.close();processing=false;desktopProcessing(false);activeBatchSettings=null;setBatchUiLocked(false);btn.disabled=false;btn.textContent='Reprocessar lote';$('cancelProcess').disabled=true}});
-$('cancelProcess').addEventListener('click',()=>{cancelRequested=true;previewProductionDone=true;signalPipeline();$('status').textContent='Cancelamento solicitado. A etapa atual será concluída antes de parar.';$('previewBatchStatus').textContent='Cancelamento solicitado…';$('cancelProcess').disabled=true});
+$('cancelProcess').addEventListener('click',()=>{cancelRequested=true;if(queueRunning)queueStopRequested=true;previewProductionDone=true;signalPipeline();$('status').textContent=queueRunning?'Pausa da fila solicitada. A etapa atual será concluída antes de parar.':'Cancelamento solicitado. A etapa atual será concluída antes de parar.';$('previewBatchStatus').textContent=queueRunning?'Pausando fila automática…':'Cancelamento solicitado…';$('cancelProcess').disabled=true});
 
 
 
