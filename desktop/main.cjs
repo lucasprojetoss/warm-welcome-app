@@ -149,54 +149,80 @@ function mimeFor(file) {
   })[ext] || 'application/octet-stream';
 }
 
-function startLocalServer() {
-  if (localServer && localBaseUrl) return Promise.resolve(localBaseUrl);
+function handleLocalRequest(req, res) {
+  try {
+    const requestUrl = new URL(req.url, 'http://127.0.0.1');
+    let rel = decodeURIComponent(requestUrl.pathname);
+    if (rel === '/') rel = '/index.html';
 
-  return new Promise((resolve, reject) => {
-    localServer = http.createServer((req, res) => {
-      try {
-        const requestUrl = new URL(req.url, 'http://127.0.0.1');
-        let rel = decodeURIComponent(requestUrl.pathname);
-        if (rel === '/') rel = '/index.html';
+    const requested = path.resolve(appRoot, '.' + rel);
+    if (requested !== appRoot && !requested.startsWith(appRoot + path.sep)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
 
-        const requested = path.resolve(appRoot, '.' + rel);
-        if (requested !== appRoot && !requested.startsWith(appRoot + path.sep)) {
-          res.writeHead(403);
-          res.end('Forbidden');
-          return;
-        }
-
-        fs.stat(requested, (statErr, stat) => {
-          if (statErr || !stat.isFile()) {
-            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end('Arquivo nao encontrado');
-            return;
-          }
-
-          res.writeHead(200, {
-            'Content-Type': mimeFor(requested),
-            'Cache-Control': 'no-store'
-          });
-          fs.createReadStream(requested).pipe(res);
-        });
-      } catch (error) {
-        log('Servidor local:', error);
-        res.writeHead(500);
-        res.end('Erro interno');
+    fs.stat(requested, (statErr, stat) => {
+      if (statErr || !stat.isFile()) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Arquivo nao encontrado');
+        return;
       }
-    });
 
-    localServer.on('error', error => {
-      log('Falha no servidor local:', error);
+      res.writeHead(200, {
+        'Content-Type': mimeFor(requested),
+        'Cache-Control': 'no-store'
+      });
+      fs.createReadStream(requested).on('error', error => {
+        log('Leitura do servidor local:', error);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      }).pipe(res);
+    });
+  } catch (error) {
+    log('Servidor local:', error);
+    if (!res.headersSent) res.writeHead(500);
+    res.end('Erro interno');
+  }
+}
+
+function listenLocalPort(port) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(handleLocalRequest);
+    const onError = error => {
+      try { server.close(); } catch (_) {}
       reject(error);
-    });
-
-    localServer.listen(LOCAL_PORT, '127.0.0.1', () => {
-      localBaseUrl = 'http://127.0.0.1:' + LOCAL_PORT;
+    };
+    server.once('error', onError);
+    server.listen(port, '127.0.0.1', () => {
+      server.removeListener('error', onError);
+      const address = server.address();
+      localServer = server;
+      localBaseUrl = 'http://127.0.0.1:' + address.port;
       log('Servidor local iniciado em', localBaseUrl);
       resolve(localBaseUrl);
     });
   });
+}
+
+async function startLocalServer() {
+  if (localServer && localBaseUrl) return localBaseUrl;
+
+  let lastError = null;
+  for (const port of [LOCAL_PORT, LOCAL_PORT + 1, LOCAL_PORT + 2, LOCAL_PORT + 3, 0]) {
+    try {
+      return await listenLocalPort(port);
+    } catch (error) {
+      lastError = error;
+      if (error && error.code === 'EADDRINUSE') {
+        log('Porta local ocupada, tentando outra:', port);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error('Não foi possível iniciar o servidor local.');
 }
 
 function setProcessingProtection(active) {
