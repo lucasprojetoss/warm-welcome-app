@@ -162,10 +162,21 @@ function toStoredPath(value) {
 function fromStoredPath(value) {
   if (!value) return value;
   const raw = String(value);
-  if (!portableMode || !raw.startsWith(PORTABLE_DRIVE_PREFIX)) return path.resolve(raw);
-  const rel = raw.slice(PORTABLE_DRIVE_PREFIX.length).replace(/\//g, path.sep);
-  const resolved = path.resolve(portableDriveRoot, rel);
-  if (!isInside(portableDriveRoot, resolved)) throw new Error('Caminho portátil inválido.');
+
+  if (portableMode && raw.startsWith(PORTABLE_DRIVE_PREFIX)) {
+    const rel = raw.slice(PORTABLE_DRIVE_PREFIX.length).replace(/\//g, path.sep);
+    const resolved = path.resolve(portableDriveRoot, rel);
+    if (!isInside(portableDriveRoot, resolved)) throw new Error('Caminho portátil inválido.');
+    return resolved;
+  }
+
+  const resolved = path.resolve(raw);
+  if (portableMode && /^[a-zA-Z]:[\\/]/.test(raw) && !fs.existsSync(resolved)) {
+    const oldRoot = path.parse(resolved).root;
+    const rel = path.relative(oldRoot, resolved);
+    const rebased = path.resolve(portableDriveRoot, rel);
+    if (fs.existsSync(rebased)) return rebased;
+  }
   return resolved;
 }
 
@@ -643,7 +654,7 @@ function saveDefaults(payload = {}) {
         try { retryFileOperation(() => fs.unlinkSync(stale), 'Limpeza de vinheta padrão antiga'); } catch (error) { log('Vinheta antiga não pôde ser removida:', stale, error.code || error.message); }
       }
       next.jingle = {
-        path: dest,
+        path: toStoredPath(dest),
         name: payload.jingle.name || path.basename(dest),
         type: payload.jingle.type || 'audio/mpeg',
         size: finalStat.size,
@@ -673,7 +684,7 @@ function saveDefaults(payload = {}) {
       }
 
       next.cover = {
-        path: dest,
+        path: toStoredPath(dest),
         name: payload.cover.name || path.basename(dest),
         type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg'),
         size: finalStat.size,
@@ -692,38 +703,43 @@ function loadDefaults() {
   let cover = config.cover || null;
   let repaired = false;
 
+  if (jingle?.path) {
+    try { jingle = { ...jingle, path: fromStoredPath(jingle.path) }; } catch (_) { jingle = null; }
+  }
+  if (cover?.path) {
+    try { cover = { ...cover, path: fromStoredPath(cover.path) }; } catch (_) { cover = null; }
+  }
+
   try {
     if (!jingle || !jingle.path || !recoverPersistentFile(jingle.path, 128)) {
       jingle = discoverDefaultJingle();
-      config.jingle = jingle;
       repaired = true;
     }
   } catch (_) {
     jingle = discoverDefaultJingle();
-    config.jingle = jingle;
     repaired = true;
   }
 
   try {
     if (!cover || !cover.path || !recoverPersistentFile(cover.path, 32)) {
       cover = discoverDefaultCover();
-      config.cover = cover;
       repaired = true;
     }
   } catch (_) {
     cover = discoverDefaultCover();
-    config.cover = cover;
     repaired = true;
   }
 
-  if (repaired) {
+  if (repaired || portableMode) {
+    config.jingle = jingle ? { ...jingle, path: toStoredPath(jingle.path) } : null;
+    config.cover = cover ? { ...cover, path: toStoredPath(cover.path) } : null;
     try { safeJsonWrite(settingsPath(), config); } catch (_) {}
   }
 
   return {
     ...config,
-    jingle,
-    cover,
+    jingle: jingle ? { ...jingle, path: jingle.path } : null,
+    cover: cover ? { ...cover, path: cover.path } : null,
     jingleData: jingle ? attachmentFromFile(jingle.path, jingle.type || 'audio/mpeg', jingle.name) : null,
     coverData: cover ? attachmentFromFile(cover.path, cover.type || 'image/jpeg', cover.name) : null
   };
@@ -755,7 +771,7 @@ function saveProfile(payload = {}) {
       const ext = path.extname(payload.jingle.name || '') || '.mp3';
       const dest = path.join(dir, 'vinheta' + ext.toLowerCase());
       writePersistentFile(dest, data, 'vinheta do perfil');
-      config.jingle = { path: dest, name: payload.jingle.name || path.basename(dest), type: payload.jingle.type || 'audio/mpeg' };
+      config.jingle = { path: toStoredPath(dest), name: payload.jingle.name || path.basename(dest), type: payload.jingle.type || 'audio/mpeg' };
     }
   }
 
@@ -765,7 +781,7 @@ function saveProfile(payload = {}) {
       const ext = /png/i.test(payload.cover.type || '') ? '.png' : '.jpg';
       const dest = path.join(dir, 'capa' + ext);
       writePersistentFile(dest, data, 'capa do perfil');
-      config.cover = { path: dest, name: payload.cover.name || path.basename(dest), type: payload.cover.type || 'image/jpeg' };
+      config.cover = { path: toStoredPath(dest), name: payload.cover.name || path.basename(dest), type: payload.cover.type || 'image/jpeg' };
     }
   }
 
@@ -783,14 +799,39 @@ function listProfiles() {
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 }
 
+function findAssetInDir(dir, meta, pattern) {
+  let candidate = null;
+  if (meta?.path) {
+    try { candidate = fromStoredPath(meta.path); } catch (_) {}
+  }
+  if (candidate && fs.existsSync(candidate)) return candidate;
+  try {
+    const name = fs.readdirSync(dir).find(file => pattern.test(file));
+    return name ? path.join(dir, name) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function loadProfile(id) {
   const dir = path.join(profilesRoot(), profileId(id));
-  const config = safeJsonRead(path.join(dir, 'perfil.json'), null);
+  const file = path.join(dir, 'perfil.json');
+  const config = safeJsonRead(file, null);
   if (!config) throw new Error('Perfil não encontrado.');
+
+  const jinglePath = findAssetInDir(dir, config.jingle, /^vinheta\./i);
+  const coverPath = findAssetInDir(dir, config.cover, /^capa\.(jpg|jpeg|png)$/i);
+
+  if (portableMode) {
+    if (config.jingle && jinglePath) config.jingle.path = toStoredPath(jinglePath);
+    if (config.cover && coverPath) config.cover.path = toStoredPath(coverPath);
+    try { safeJsonWrite(file, config); } catch (_) {}
+  }
+
   return {
     ...config,
-    jingleData: config.jingle ? attachmentFromFile(config.jingle.path, config.jingle.type || 'audio/mpeg', config.jingle.name) : null,
-    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg', config.cover.name) : null
+    jingleData: jinglePath ? attachmentFromFile(jinglePath, config.jingle?.type || 'audio/mpeg', config.jingle?.name) : null,
+    coverData: coverPath ? attachmentFromFile(coverPath, config.cover?.type || 'image/jpeg', config.cover?.name) : null
   };
 }
 
@@ -815,7 +856,7 @@ function queueLotSummary(config) {
   return {
     id: config.id,
     name: config.name,
-    folder: config.folder,
+    folder: fromStoredPath(config.folder),
     fileCount: Array.isArray(config.files) ? config.files.length : Number(config.fileCount || 0),
     status: config.status || 'waiting',
     progress: Number(config.progress || 0),
@@ -865,6 +906,8 @@ function saveQueueLot(payload = {}) {
   if (activeDuplicate) throw new Error('Esta pasta já está aguardando ou processando na fila.');
 
   const files = listMp3Files(folder).map(file => file.path);
+  const storedFolder = toStoredPath(folder);
+  const storedFiles = storedPathList(files);
   if (!files.length) throw new Error('Nenhum MP3 encontrado nesta pasta.');
 
   const jingleData = incomingFileBuffer(payload.jingle);
@@ -886,7 +929,7 @@ function saveQueueLot(payload = {}) {
       const coverPath = path.join(dir, 'capa' + ext);
       writePersistentFile(coverPath, coverData, 'capa do lote');
       cover = {
-        path: coverPath,
+        path: toStoredPath(coverPath),
         name: payload.cover.name || path.basename(coverPath),
         type: payload.cover.type || (ext === '.png' ? 'image/png' : 'image/jpeg')
       };
@@ -898,9 +941,9 @@ function saveQueueLot(payload = {}) {
     version: 1,
     id,
     name: String(payload.name || '').trim() || ('Lote ' + number),
-    folder,
-    files,
-    fileCount: files.length,
+    folder: storedFolder,
+    files: storedFiles,
+    fileCount: storedFiles.length,
     status: 'waiting',
     progress: 0,
     completedCount: 0,
@@ -920,7 +963,7 @@ function saveQueueLot(payload = {}) {
       }
     },
     jingle: {
-      path: jinglePath,
+      path: toStoredPath(jinglePath),
       name: payload.jingle?.name || path.basename(jinglePath),
       type: payload.jingle?.type || 'audio/mpeg'
     },
@@ -932,11 +975,33 @@ function saveQueueLot(payload = {}) {
 }
 
 function loadQueueLot(id) {
+  const dir = queueLotDir(id);
+  const file = path.join(dir, 'lote.json');
   const config = readQueueLotConfig(id);
+
+  const folder = fromStoredPath(config.folder);
+  const files = resolvedPathList(config.files);
+  const completedFiles = resolvedPathList(config.completedFiles);
+
+  const jinglePath = findAssetInDir(dir, config.jingle, /^vinheta\./i);
+  const coverPath = findAssetInDir(dir, config.cover, /^capa\.(jpg|jpeg|png)$/i);
+
+  if (portableMode) {
+    config.folder = toStoredPath(folder);
+    config.files = storedPathList(files);
+    config.completedFiles = storedPathList(completedFiles);
+    if (config.jingle && jinglePath) config.jingle.path = toStoredPath(jinglePath);
+    if (config.cover && coverPath) config.cover.path = toStoredPath(coverPath);
+    try { safeJsonWrite(file, config); } catch (_) {}
+  }
+
   return {
     ...config,
-    jingleData: config.jingle ? attachmentFromFile(config.jingle.path, config.jingle.type || 'audio/mpeg', config.jingle.name) : null,
-    coverData: config.cover ? attachmentFromFile(config.cover.path, config.cover.type || 'image/jpeg', config.cover.name) : null
+    folder,
+    files,
+    completedFiles,
+    jingleData: jinglePath ? attachmentFromFile(jinglePath, config.jingle?.type || 'audio/mpeg', config.jingle?.name) : null,
+    coverData: coverPath ? attachmentFromFile(coverPath, config.cover?.type || 'image/jpeg', config.cover?.name) : null
   };
 }
 
@@ -951,7 +1016,8 @@ function updateQueueLot(id, patch = {}) {
   if (Number.isFinite(patch.progress)) config.progress = Math.max(0, Math.min(100, Number(patch.progress)));
   if (Array.isArray(patch.completedFiles)) {
     const allowed = new Set(Array.isArray(config.files) ? config.files : []);
-    config.completedFiles = [...new Set(patch.completedFiles.map(String).filter(file => allowed.has(file)))];
+    const storedCompleted = patch.completedFiles.map(toStoredPath);
+    config.completedFiles = [...new Set(storedCompleted.filter(file => allowed.has(file)))];
     config.completedCount = config.completedFiles.length;
   } else if (Number.isFinite(patch.completedCount)) {
     config.completedCount = Math.max(0, Number(patch.completedCount));
@@ -984,6 +1050,8 @@ function getDiagnostics() {
     electron: process.versions.electron,
     node: process.versions.node,
     platform: process.platform,
+    portableMode,
+    portableRoot,
     monitor: display ? {
       width: display.workArea.width,
       height: display.workArea.height,
@@ -1093,6 +1161,8 @@ ipcMain.handle('desktop:status', () => {
     version: app.getVersion(),
     processingProtected: blockerId !== null && powerSaveBlocker.isStarted(blockerId),
     localServer: Boolean(localBaseUrl),
+    portableMode,
+    portableRoot,
     monitor: {
       width: display.workArea.width,
       height: display.workArea.height,
@@ -1137,9 +1207,28 @@ ipcMain.handle('profiles:list', () => listProfiles());
 ipcMain.handle('profiles:save', (_event, payload) => saveProfile(payload || {}));
 ipcMain.handle('profiles:load', (_event, id) => loadProfile(String(id || '')));
 
-ipcMain.handle('batch:load', () => safeJsonRead(batchStatePath(), null));
+function encodeBatchState(state = {}) {
+  return {
+    ...state,
+    folder: state.folder ? toStoredPath(state.folder) : state.folder,
+    files: storedPathList(state.files),
+    completed: storedPathList(state.completed)
+  };
+}
+
+function decodeBatchState(state) {
+  if (!state || typeof state !== 'object') return state;
+  return {
+    ...state,
+    folder: state.folder ? fromStoredPath(state.folder) : state.folder,
+    files: resolvedPathList(state.files),
+    completed: resolvedPathList(state.completed)
+  };
+}
+
+ipcMain.handle('batch:load', () => decodeBatchState(safeJsonRead(batchStatePath(), null)));
 ipcMain.handle('batch:save', (_event, state) => {
-  safeJsonWrite(batchStatePath(), state || {});
+  safeJsonWrite(batchStatePath(), encodeBatchState(state || {}));
   return true;
 });
 ipcMain.handle('batch:clear', () => {
