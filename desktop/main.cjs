@@ -776,7 +776,7 @@ function queueLotSummary(config) {
     fileCount: Array.isArray(config.files) ? config.files.length : Number(config.fileCount || 0),
     status: config.status || 'waiting',
     progress: Number(config.progress || 0),
-    completedCount: Number(config.completedCount || 0),
+    completedCount: Array.isArray(config.completedFiles) ? config.completedFiles.length : Number(config.completedCount || 0),
     error: config.error || '',
     createdAt: config.createdAt,
     updatedAt: config.updatedAt
@@ -861,6 +861,7 @@ function saveQueueLot(payload = {}) {
     status: 'waiting',
     progress: 0,
     completedCount: 0,
+    completedFiles: [],
     error: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -905,7 +906,13 @@ function updateQueueLot(id, patch = {}) {
   const allowedStatus = ['waiting', 'processing', 'completed', 'error', 'cancelled'];
   if (patch.status && allowedStatus.includes(patch.status)) config.status = patch.status;
   if (Number.isFinite(patch.progress)) config.progress = Math.max(0, Math.min(100, Number(patch.progress)));
-  if (Number.isFinite(patch.completedCount)) config.completedCount = Math.max(0, Number(patch.completedCount));
+  if (Array.isArray(patch.completedFiles)) {
+    const allowed = new Set(Array.isArray(config.files) ? config.files : []);
+    config.completedFiles = [...new Set(patch.completedFiles.map(String).filter(file => allowed.has(file)))];
+    config.completedCount = config.completedFiles.length;
+  } else if (Number.isFinite(patch.completedCount)) {
+    config.completedCount = Math.max(0, Number(patch.completedCount));
+  }
   if (typeof patch.error === 'string') config.error = patch.error.slice(0, 1000);
   config.updatedAt = new Date().toISOString();
 
