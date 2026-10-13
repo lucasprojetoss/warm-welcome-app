@@ -31,3 +31,5 @@ No aplicativo desktop, é possível adicionar até 30 lotes dentro da mesma jane
 ## Modo portátil
 
 Execute `PREPARAR-LUCAS-GRAVACOES-PORTATIL.bat` em um computador com Node.js/npm e escolha o HD, SSD externo ou pendrive. O preparador cria `LucasGravacoes-Portable` com o Electron e o codificador MP3 locais. Depois, abra pelo arquivo `ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs` dentro da pasta portátil. Dados, vinheta, perfis, fila e retomadas ficam em `LucasGravacoes-Dados`. Caminhos de músicas no mesmo disco são independentes da letra atribuída pelo Windows.
+
+Quando estiver no modo portátil, use o botão **Atualizar portátil** dentro do próprio Lucas Gravações. O GitHub publica automaticamente um pacote pronto com Electron e dependências; o programa baixa esse pacote, preserva `LucasGravacoes-Dados`, troca a versão e reinicia. A atualização do portátil não depende de Git, Node.js ou npm no computador onde o HD estiver conectado.
