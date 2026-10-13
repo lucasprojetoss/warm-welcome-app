@@ -11,6 +11,7 @@
     "electron": "44.7.0"
   },
   "dependencies": {
-    "loudness": "0.4.2"
+    "loudness": "0.4.2",
+    "lamejs": "1.2.1"
   }
 }
