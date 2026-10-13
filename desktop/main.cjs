@@ -32,7 +32,7 @@ let selectedMusicRoot = null;
 let processingActive = false;
 let fitTimer = null;
 let currentProgress = {
-  version: '1.4.1',
+  version: '1.4.2',
   total: 0,
   previewReady: 0,
   finalized: 0,
