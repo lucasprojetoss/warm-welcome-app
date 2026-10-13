@@ -452,10 +452,6 @@ async function checkPortableUpdate() {
   };
 }
 
-function portableUpdaterScript() {
-  return "param(\n  [Parameter(Mandatory=$true)][string]$Zip,\n  [Parameter(Mandatory=$true)][string]$Root,\n  [Parameter(Mandatory=$true)][string]$Token,\n  [Parameter(Mandatory=$true)][int]$AppPid\n)\n\n$ErrorActionPreference = 'Stop'\n$dataDir = Join-Path $Root 'LucasGravacoes-Dados'\nNew-Item -ItemType Directory -Path $dataDir -Force | Out-Null\n$log = Join-Path $dataDir 'atualizacao-portatil.log'\n$parent = Split-Path -Parent $Root\n$name = Split-Path -Leaf $Root\n$stage = Join-Path $parent ($name + '.__update_' + $Token)\n\nfunction Write-Log([string]$Text) {\n  Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' - ' + $Text) -Encoding UTF8\n}\n\nfunction Show-UpdateMessage([string]$Text, [string]$Kind='Information') {\n  try {\n    Add-Type -AssemblyName PresentationFramework\n    [System.Windows.MessageBox]::Show($Text, 'Lucas Gravacoes - Atualizacao', 'OK', $Kind) | Out-Null\n  } catch {}\n}\n\ntry {\n  Write-Log ('INICIO token=' + $Token + ' root=' + $Root + ' pid=' + $AppPid)\n\n  try {\n    Write-Log 'Aguardando processo principal encerrar.'\n    Wait-Process -Id $AppPid -Timeout 40 -ErrorAction SilentlyContinue\n  } catch {}\n\n  # Aguarda também processos Electron que ainda estejam usando esta instalação.\n  for ($round = 0; $round -lt 30; $round++) {\n    $usingRoot = @(Get-Process electron -ErrorAction SilentlyContinue | Where-Object {\n      try { $_.Path -and $_.Path.StartsWith((Join-Path $Root 'desktop'), [System.StringComparison]::OrdinalIgnoreCase) } catch { $false }\n    })\n    if ($usingRoot.Count -eq 0) { break }\n    Write-Log ('Ainda existem ' + $usingRoot.Count + ' processo(s) Electron usando a pasta. Aguardando...')\n    Start-Sleep -Seconds 1\n  }\n\n  $stillUsing = @(Get-Process electron -ErrorAction SilentlyContinue | Where-Object {\n    try { $_.Path -and $_.Path.StartsWith((Join-Path $Root 'desktop'), [System.StringComparison]::OrdinalIgnoreCase) } catch { $false }\n  })\n  if ($stillUsing.Count -gt 0) {\n    throw 'O Lucas Gravacoes ainda estava aberto e bloqueando os arquivos da atualizacao.'\n  }\n\n  if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }\n  New-Item -ItemType Directory -Path $stage -Force | Out-Null\n\n  Write-Log 'Extraindo pacote novo.'\n  Expand-Archive -LiteralPath $Zip -DestinationPath $stage -Force\n\n  $source = Join-Path $stage 'LucasGravacoes-Portable'\n  if (!(Test-Path -LiteralPath $source)) {\n    $dirs = @(Get-ChildItem -LiteralPath $stage -Directory)\n    if ($dirs.Count -eq 1) { $source = $dirs[0].FullName }\n  }\n\n  $package = Join-Path $source 'desktop\\package.json'\n  $electron = Join-Path $source 'desktop\\node_modules\\electron\\dist\\electron.exe'\n  $main = Join-Path $source 'desktop\\main.cjs'\n  $index = Join-Path $source 'index.html'\n  if (!(Test-Path -LiteralPath $package) -or !(Test-Path -LiteralPath $electron) -or !(Test-Path -LiteralPath $main) -or !(Test-Path -LiteralPath $index)) {\n    throw 'O pacote baixado esta incompleto.'\n  }\n\n  $newVersion = [string](Get-Content -LiteralPath $package -Raw | ConvertFrom-Json).version\n  Write-Log ('Versao recebida: ' + $newVersion)\n\n  Write-Log 'Copiando arquivos para a mesma pasta raiz.'\n  & robocopy.exe $source $Root /MIR /R:4 /W:2 /XD (Join-Path $source 'LucasGravacoes-Dados') (Join-Path $Root 'LucasGravacoes-Dados') /XF 'desktop-runtime.log' 'atualizacao-portatil.log' | Out-Null\n  $rc = $LASTEXITCODE\n  Write-Log ('Robocopy codigo=' + $rc)\n  if ($rc -ge 8) { throw ('Falha ao copiar arquivos. Codigo Robocopy ' + $rc) }\n\n  $installedPackage = Join-Path $Root 'desktop\\package.json'\n  $installedVersion = [string](Get-Content -LiteralPath $installedPackage -Raw | ConvertFrom-Json).version\n  Write-Log ('Versao instalada apos copia: ' + $installedVersion)\n  if ($installedVersion -ne $newVersion) {\n    throw ('Versao instalada nao confere. Nova=' + $newVersion + ' instalada=' + $installedVersion)\n  }\n\n  $flag = Join-Path $dataDir ('update-ok-' + $Token + '.flag')\n  if (Test-Path -LiteralPath $flag) { Remove-Item -LiteralPath $flag -Force }\n  $env:LUCAS_PORTABLE_UPDATE_TOKEN = $Token\n\n  $opener = Join-Path $Root 'ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs'\n  Write-Log ('Abrindo: ' + $opener)\n  Start-Process -FilePath 'wscript.exe' -ArgumentList ('\"' + $opener + '\"')\n\n  $confirmed = $false\n  for ($i = 0; $i -lt 120; $i++) {\n    if (Test-Path -LiteralPath $flag) { $confirmed = $true; break }\n    Start-Sleep -Milliseconds 500\n  }\n\n  if ($confirmed) {\n    Write-Log ('SUCESSO: v' + $installedVersion + ' abriu e confirmou inicializacao.')\n    try { Remove-Item -LiteralPath $flag -Force } catch {}\n  } else {\n    Write-Log ('AVISO: v' + $installedVersion + ' foi instalada, mas nao confirmou abertura.')\n    Show-UpdateMessage ('A versao ' + $installedVersion + ' foi instalada, mas nao consegui confirmar a abertura automatica. Abra novamente pelo ABRIR-LUCAS-GRAVACOES-PORTATIL.') 'Warning'\n  }\n\n  try { Remove-Item -LiteralPath $stage -Recurse -Force } catch {}\n  try { Remove-Item -LiteralPath $Zip -Force } catch {}\n} catch {\n  Write-Log ('ERRO: ' + $_.Exception.Message)\n  Show-UpdateMessage ('Nao foi possivel concluir a atualizacao.' + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message + [Environment]::NewLine + [Environment]::NewLine + 'Veja LucasGravacoes-Dados\\atualizacao-portatil.log') 'Error'\n}\n\ntry { Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force } catch {}\n";
-}
-
 async function beginPortableUpdate(event) {
   if (!portableMode) throw new Error('Esta opção só existe no modo portátil.');
   if (portableUpdateActive) throw new Error('Já existe uma atualização em andamento.');
@@ -466,7 +462,7 @@ async function beginPortableUpdate(event) {
   fs.mkdirSync(tempRoot, { recursive: true });
   const token = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   const zipPath = path.join(tempRoot, 'LucasGravacoes-Portable-' + token + '.zip');
-  const scriptPath = path.join(tempRoot, 'aplicar-' + token + '.ps1');
+  const updaterPath = path.join(tempRoot, 'aplicar-' + token + '.cmd');
 
   try {
     const check = await checkPortableUpdate();
@@ -490,8 +486,17 @@ async function beginPortableUpdate(event) {
 
     const updaterSource = path.join(__dirname, 'portable-updater.cmd');
     if (!fs.existsSync(updaterSource)) throw new Error('Atualizador portatil CMD nao foi encontrado.');
-    const cmdPath = scriptPath.replace(/\.ps1$/i, '.cmd');
-    fs.copyFileSync(updaterSource, cmdPath);
+    fs.copyFileSync(updaterSource, updaterPath);
+
+    const updaterLog = path.join(portableRoot, 'LucasGravacoes-Dados', 'atualizacao-portatil.log');
+    try {
+      fs.mkdirSync(path.dirname(updaterLog), { recursive: true });
+      fs.appendFileSync(
+        updaterLog,
+        '[' + new Date().toISOString() + '] DISPARO: preparando atualizacao para v' + check.remoteVersion + '\n',
+        'utf8'
+      );
+    } catch (_) {}
 
     event.sender.send('portable:update-progress', {
       phase: 'ready',
@@ -499,11 +504,11 @@ async function beginPortableUpdate(event) {
       message: 'Download concluído. Reiniciando para aplicar...'
     });
 
-    const child = spawn('cmd.exe', [
+    const commandProcessor = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
+    const child = spawn(commandProcessor, [
       '/d',
-      '/s',
       '/c',
-      '"' + cmdPath + '"',
+      updaterPath,
       downloaded.path,
       portableRoot,
       token,
@@ -515,18 +520,32 @@ async function beginPortableUpdate(event) {
       stdio: 'ignore',
       env: { ...process.env }
     });
+
+    try {
+      fs.appendFileSync(
+        updaterLog,
+        '[' + new Date().toISOString() + '] DISPARO: processo atualizador PID=' + String(child.pid || 'desconhecido') + '\n',
+        'utf8'
+      );
+    } catch (_) {}
+
+    child.once('error', error => {
+      try {
+        fs.appendFileSync(
+          updaterLog,
+          '[' + new Date().toISOString() + '] ERRO AO INICIAR CMD: ' + String(error && error.message || error) + '\n',
+          'utf8'
+        );
+      } catch (_) {}
+    });
     child.unref();
 
-    setTimeout(() => app.quit(), 900);
+    setTimeout(() => app.quit(), 1500);
     return { ok: true, restarting: true, remoteVersion: check.remoteVersion };
   } catch (error) {
     try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (_) {}
     try { if (fs.existsSync(zipPath + '.part')) fs.unlinkSync(zipPath + '.part'); } catch (_) {}
-    try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (_) {}
-    try {
-      const cmdPath = scriptPath.replace(/\.ps1$/i, '.cmd');
-      if (fs.existsSync(cmdPath)) fs.unlinkSync(cmdPath);
-    } catch (_) {}
+    try { if (fs.existsSync(updaterPath)) fs.unlinkSync(updaterPath); } catch (_) {}
     throw error;
   } finally {
     portableUpdateActive = false;
