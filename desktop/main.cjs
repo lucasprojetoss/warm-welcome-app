@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, powerSaveBlocker, shell, Menu, screen, dial
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
+const { spawn } = require('child_process');
 
 const portableMode = process.env.LUCAS_PORTABLE_MODE === '1';
 const portableRoot = portableMode
@@ -40,6 +42,9 @@ let currentProgress = {
 };
 
 const LOCAL_PORT = 47831;
+const PORTABLE_VERSION_URL = 'https://raw.githubusercontent.com/lucasprojetoss/warm-welcome-app/main/desktop/package.json';
+const PORTABLE_RELEASE_URL = 'https://github.com/lucasprojetoss/warm-welcome-app/releases/download/portable-latest/LucasGravacoes-Portable.zip';
+let portableUpdateActive = false;
 const appRoot = path.resolve(__dirname, '..');
 const logFile = portableMode
   ? path.join(app.getPath('userData'), 'desktop-runtime.log')
@@ -281,6 +286,215 @@ async function startLocalServer() {
   }
 
   throw lastError || new Error('Não foi possível iniciar o servidor local.');
+}
+
+
+function httpsGetBuffer(url, redirects = 6) {
+  return new Promise((resolve, reject) => {
+    if (redirects < 0) return reject(new Error('Redirecionamentos demais ao consultar atualização.'));
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'Lucas-Gravacoes-Portable-Updater',
+        'Accept': 'application/octet-stream, application/json;q=0.9, */*;q=0.8'
+      }
+    }, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
+        response.resume();
+        const next = new URL(response.headers.location, url).toString();
+        httpsGetBuffer(next, redirects - 1).then(resolve, reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error('Servidor de atualização respondeu HTTP ' + response.statusCode + '.'));
+        return;
+      }
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', reject);
+    });
+    req.setTimeout(30000, () => req.destroy(new Error('Tempo esgotado ao consultar atualização.')));
+    req.on('error', reject);
+  });
+}
+
+function downloadHttpsFile(url, dest, onProgress, redirects = 8) {
+  return new Promise((resolve, reject) => {
+    if (redirects < 0) return reject(new Error('Redirecionamentos demais ao baixar atualização.'));
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'Lucas-Gravacoes-Portable-Updater',
+        'Accept': 'application/octet-stream'
+      }
+    }, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
+        response.resume();
+        const next = new URL(response.headers.location, url).toString();
+        downloadHttpsFile(next, dest, onProgress, redirects - 1).then(resolve, reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(response.statusCode === 404
+          ? 'O pacote portátil ainda não está disponível no GitHub. Aguarde alguns minutos e tente novamente.'
+          : 'Falha ao baixar atualização: HTTP ' + response.statusCode + '.'));
+        return;
+      }
+
+      const total = Number(response.headers['content-length']) || 0;
+      let received = 0;
+      const temp = dest + '.part';
+      try {
+        if (fs.existsSync(temp)) fs.unlinkSync(temp);
+        if (fs.existsSync(dest)) fs.unlinkSync(dest);
+      } catch (_) {}
+
+      const output = fs.createWriteStream(temp);
+      response.on('data', chunk => {
+        received += chunk.length;
+        if (typeof onProgress === 'function') {
+          const percent = total ? Math.max(0, Math.min(100, Math.round(received / total * 100))) : null;
+          onProgress({ received, total, percent });
+        }
+      });
+      response.pipe(output);
+
+      output.on('finish', () => {
+        output.close(() => {
+          try {
+            const st = fs.statSync(temp);
+            if (st.size < 1024 * 1024) throw new Error('O pacote baixado é pequeno demais e parece inválido.');
+            fs.renameSync(temp, dest);
+            resolve({ path: dest, size: st.size });
+          } catch (error) {
+            try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+            reject(error);
+          }
+        });
+      });
+
+      output.on('error', error => {
+        try { output.destroy(); } catch (_) {}
+        try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+        reject(error);
+      });
+      response.on('error', error => {
+        try { output.destroy(); } catch (_) {}
+        try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+        reject(error);
+      });
+    });
+
+    req.setTimeout(60000, () => req.destroy(new Error('Tempo esgotado durante o download da atualização.')));
+    req.on('error', reject);
+  });
+}
+
+function versionParts(value) {
+  return String(value || '0').replace(/^v/i, '').split('.').map(x => {
+    const n = parseInt(x, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+function compareVersions(a, b) {
+  const aa = versionParts(a);
+  const bb = versionParts(b);
+  for (let i = 0; i < Math.max(aa.length, bb.length, 3); i++) {
+    const av = aa[i] || 0;
+    const bv = bb[i] || 0;
+    if (av > bv) return 1;
+    if (av < bv) return -1;
+  }
+  return 0;
+}
+
+async function checkPortableUpdate() {
+  if (!portableMode) return { portable: false, currentVersion: app.getVersion(), updateAvailable: false };
+  const buffer = await httpsGetBuffer(PORTABLE_VERSION_URL);
+  const remote = JSON.parse(buffer.toString('utf8'));
+  const remoteVersion = String(remote.version || '').trim();
+  if (!remoteVersion) throw new Error('O GitHub não informou a versão disponível.');
+  const currentVersion = app.getVersion();
+  return {
+    portable: true,
+    currentVersion,
+    remoteVersion,
+    updateAvailable: compareVersions(remoteVersion, currentVersion) > 0
+  };
+}
+
+function portableUpdaterScript() {
+  return "param(\n  [Parameter(Mandatory=$true)][string]$Zip,\n  [Parameter(Mandatory=$true)][string]$Root,\n  [Parameter(Mandatory=$true)][string]$Token\n)\n\n$ErrorActionPreference = 'Stop'\n$parent = Split-Path -Parent $Root\n$name = Split-Path -Leaf $Root\n$stage = Join-Path $parent ($name + '.__update_' + $Token)\n$backup = Join-Path $parent ($name + '.__anterior')\n$dataTemp = Join-Path $parent ($name + '.__dados_' + $Token)\n$log = Join-Path $env:TEMP ('LucasGravacoes-Update-' + $Token + '.log')\n\nfunction Write-Log([string]$Text) {\n  Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' - ' + $Text) -Encoding UTF8\n}\n\nfunction Show-UpdateMessage([string]$Text, [string]$Kind='Information') {\n  try {\n    Add-Type -AssemblyName PresentationFramework\n    [System.Windows.MessageBox]::Show($Text, 'Lucas Gravacoes - Atualizacao', 'OK', $Kind) | Out-Null\n  } catch {}\n}\n\ntry {\n  Write-Log 'Aguardando fechamento do aplicativo.'\n  Start-Sleep -Seconds 3\n\n  foreach ($item in @($stage, $backup, $dataTemp)) {\n    if (Test-Path -LiteralPath $item) {\n      Remove-Item -LiteralPath $item -Recurse -Force\n    }\n  }\n\n  New-Item -ItemType Directory -Path $stage -Force | Out-Null\n  Write-Log 'Extraindo pacote novo.'\n  Expand-Archive -LiteralPath $Zip -DestinationPath $stage -Force\n\n  $source = Join-Path $stage 'LucasGravacoes-Portable'\n  if (!(Test-Path -LiteralPath $source)) {\n    $dirs = @(Get-ChildItem -LiteralPath $stage -Directory)\n    if ($dirs.Count -eq 1) { $source = $dirs[0].FullName }\n  }\n\n  $electron = Join-Path $source 'desktop\\node_modules\\electron\\dist\\electron.exe'\n  $main = Join-Path $source 'desktop\\main.cjs'\n  $index = Join-Path $source 'index.html'\n  if (!(Test-Path -LiteralPath $electron) -or !(Test-Path -LiteralPath $main) -or !(Test-Path -LiteralPath $index)) {\n    throw 'O pacote novo nao contem todos os arquivos necessarios.'\n  }\n\n  $data = Join-Path $Root 'LucasGravacoes-Dados'\n  if (Test-Path -LiteralPath $data) {\n    Write-Log 'Preservando dados do usuario.'\n    Move-Item -LiteralPath $data -Destination $dataTemp\n  }\n\n  Write-Log 'Guardando versao anterior.'\n  Rename-Item -LiteralPath $Root -NewName (Split-Path -Leaf $backup)\n\n  Write-Log 'Ativando versao nova.'\n  Move-Item -LiteralPath $source -Destination $Root\n\n  if (Test-Path -LiteralPath $dataTemp) {\n    Move-Item -LiteralPath $dataTemp -Destination (Join-Path $Root 'LucasGravacoes-Dados')\n  }\n\n  $flag = Join-Path (Join-Path $Root 'LucasGravacoes-Dados') ('update-ok-' + $Token + '.flag')\n  if (Test-Path -LiteralPath $flag) { Remove-Item -LiteralPath $flag -Force }\n\n  $env:LUCAS_PORTABLE_UPDATE_TOKEN = $Token\n  Write-Log 'Abrindo versao nova.'\n  Start-Process -FilePath 'wscript.exe' -ArgumentList ('\"' + (Join-Path $Root 'ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs') + '\"')\n\n  $confirmed = $false\n  for ($i = 0; $i -lt 80; $i++) {\n    if (Test-Path -LiteralPath $flag) {\n      $confirmed = $true\n      break\n    }\n    Start-Sleep -Milliseconds 500\n  }\n\n  if ($confirmed) {\n    Write-Log 'Nova versao confirmou inicializacao.'\n    try { Remove-Item -LiteralPath $backup -Recurse -Force } catch { Write-Log ('Backup anterior mantido: ' + $_.Exception.Message) }\n    try { Remove-Item -LiteralPath $flag -Force } catch {}\n  } else {\n    Write-Log 'Nao foi possivel confirmar a inicializacao da nova versao.'\n    Show-UpdateMessage 'A atualizacao foi copiada, mas nao consegui confirmar a abertura da nova versao. A pasta de recuperacao da versao anterior foi mantida ao lado do Lucas Gravacoes.' 'Warning'\n  }\n\n  try { Remove-Item -LiteralPath $stage -Recurse -Force } catch {}\n  try { Remove-Item -LiteralPath $Zip -Force } catch {}\n} catch {\n  Write-Log ('ERRO: ' + $_.Exception.Message)\n\n  try {\n    if (!(Test-Path -LiteralPath $Root) -and (Test-Path -LiteralPath $backup)) {\n      Rename-Item -LiteralPath $backup -NewName $name\n    }\n    if (Test-Path -LiteralPath $dataTemp) {\n      $restoredData = Join-Path $Root 'LucasGravacoes-Dados'\n      if (!(Test-Path -LiteralPath $restoredData)) {\n        Move-Item -LiteralPath $dataTemp -Destination $restoredData\n      }\n    }\n  } catch {\n    Write-Log ('Falha durante restauracao: ' + $_.Exception.Message)\n  }\n\n  Show-UpdateMessage ('Nao foi possivel concluir a atualizacao.' + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message) 'Error'\n  try {\n    $opener = Join-Path $Root 'ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs'\n    if (Test-Path -LiteralPath $opener) {\n      Start-Process -FilePath 'wscript.exe' -ArgumentList ('\"' + $opener + '\"')\n    }\n  } catch {}\n}\n\ntry { Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force } catch {}\n";
+}
+
+async function beginPortableUpdate(event) {
+  if (!portableMode) throw new Error('Esta opção só existe no modo portátil.');
+  if (portableUpdateActive) throw new Error('Já existe uma atualização em andamento.');
+  if (processingActive) throw new Error('Espere o lote atual terminar antes de atualizar.');
+
+  portableUpdateActive = true;
+  const tempRoot = path.join(app.getPath('temp'), 'LucasGravacoes-Portable-Updater');
+  fs.mkdirSync(tempRoot, { recursive: true });
+  const token = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  const zipPath = path.join(tempRoot, 'LucasGravacoes-Portable-' + token + '.zip');
+  const scriptPath = path.join(tempRoot, 'aplicar-' + token + '.ps1');
+
+  try {
+    const check = await checkPortableUpdate();
+    if (!check.updateAvailable) return { ok: true, upToDate: true, ...check };
+
+    event.sender.send('portable:update-progress', {
+      phase: 'download',
+      percent: 0,
+      message: 'Baixando v' + check.remoteVersion + '...'
+    });
+
+    const downloaded = await downloadHttpsFile(PORTABLE_RELEASE_URL, zipPath, progress => {
+      event.sender.send('portable:update-progress', {
+        phase: 'download',
+        ...progress,
+        message: progress.percent === null
+          ? 'Baixando atualização...'
+          : 'Baixando atualização... ' + progress.percent + '%'
+      });
+    });
+
+    fs.writeFileSync(scriptPath, portableUpdaterScript(), 'utf8');
+
+    event.sender.send('portable:update-progress', {
+      phase: 'ready',
+      percent: 100,
+      message: 'Download concluído. Reiniciando para aplicar...'
+    });
+
+    const child = spawn('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', scriptPath,
+      '-Zip', downloaded.path,
+      '-Root', portableRoot,
+      '-Token', token
+    ], {
+      cwd: app.getPath('temp'),
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+      env: { ...process.env }
+    });
+    child.unref();
+
+    setTimeout(() => app.quit(), 900);
+    return { ok: true, restarting: true, remoteVersion: check.remoteVersion };
+  } catch (error) {
+    try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (_) {}
+    try { if (fs.existsSync(zipPath + '.part')) fs.unlinkSync(zipPath + '.part'); } catch (_) {}
+    try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (_) {}
+    throw error;
+  } finally {
+    portableUpdateActive = false;
+  }
 }
 
 function setProcessingProtection(active) {
@@ -1099,6 +1313,19 @@ async function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     log('Interface carregada com sucesso');
     fitWindowToDisplay(false);
+    if (portableMode && process.env.LUCAS_PORTABLE_UPDATE_TOKEN) {
+      const token = String(process.env.LUCAS_PORTABLE_UPDATE_TOKEN).replace(/[^a-zA-Z0-9_-]/g, '');
+      if (token) {
+        try {
+          const flagDir = path.join(portableRoot, 'LucasGravacoes-Dados');
+          fs.mkdirSync(flagDir, { recursive: true });
+          fs.writeFileSync(path.join(flagDir, 'update-ok-' + token + '.flag'), new Date().toISOString(), 'utf8');
+          log('Atualização portátil confirmou inicialização:', token);
+        } catch (error) {
+          log('Falha ao confirmar atualização portátil:', error);
+        }
+      }
+    }
   });
 
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
@@ -1246,6 +1473,8 @@ ipcMain.handle('queue:update', (_event, id, patch) => updateQueueLot(String(id |
 ipcMain.handle('queue:remove', (_event, id) => removeQueueLot(String(id || '')));
 
 ipcMain.handle('diagnostics:get', () => getDiagnostics());
+ipcMain.handle('portable:update-check', () => checkPortableUpdate());
+ipcMain.handle('portable:update-install', event => beginPortableUpdate(event));
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
