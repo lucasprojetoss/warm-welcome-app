@@ -1,40 +1,25 @@
-# Warm Welcome App
+# Lucas Gravações
 
-.
-
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/1e2b929e-7609-4704-be35-2bfedc12cdb0).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
-```
+Projeto conectado ao Lovable e ao GitHub.
 
 ## Lucas Gravações Desktop (Electron)
 
-A versão desktop enxuta fica na pasta `desktop` e instala somente o Electron.
+A versão usada no Windows fica na pasta `desktop` e abre o sistema de Auto Vinhetas como aplicativo.
 
-### Jeito mais fácil no Windows
+### Primeira instalação no Windows
 
-1. Baixe o ZIP mais recente do repositório e extraia.
-2. Abra `warm-welcome-app-main\desktop`.
-3. Dê dois cliques em `INICIAR-LUCAS-GRAVACOES.bat`.
-4. Na primeira execução, ele instala apenas o Electron.
-5. Nas próximas execuções, abre direto.
+1. Baixe e extraia o ZIP do repositório.
+2. Abra a pasta `desktop`.
+3. Execute `INSTALAR-AUTO-ATUALIZACAO.bat` uma única vez.
+4. O instalador cria uma cópia fixa em `%LOCALAPPDATA%\LucasGravacoes`.
+5. Ele cria o atalho **Lucas Gravacoes** na Área de Trabalho.
 
-Não rode `npm install` na pasta principal para testar o Electron. A pasta principal continua sendo o projeto Lovable; a versão desktop foi isolada para evitar baixar dependências desnecessárias.
+Depois disso, use somente o atalho da Área de Trabalho. Ao abrir, ele tenta buscar atualizações no GitHub e, se não conseguir atualizar, mantém a instalação já existente.
 
-A janela Electron usa `backgroundThrottling: false` e ativa `powerSaveBlocker` enquanto o lote estiver em processamento.
+### Processamento em segundo plano
+
+O Electron desativa o throttling da janela e ativa `powerSaveBlocker` durante o processamento do lote. Ao minimizar, o aplicativo permanece normalmente na barra de tarefas do Windows.
+
+### Dados permanentes
+
+Vinheta padrão, metadados, capa, perfis e estado de retomada ficam na pasta de dados do aplicativo e não são apagados pelas atualizações do código.
