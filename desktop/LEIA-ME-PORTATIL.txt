@@ -22,11 +22,13 @@ PORTABILIDADE:
   LucasGravacoes-Dados
 
 ATUALIZACOES:
-- A atualizacao automatica do portatil so e tentada quando o computador possui
-  Git + Node.js + npm. Assim, as dependencias tambem podem ser ajustadas.
-- Em outro computador sem Node.js, ele simplesmente abre a versao que ja esta
-  pronta no HD, sem arriscar uma atualizacao incompleta.
-- Sem internet, ele abre a versao que ja esta no HD.
+- Abra o Lucas Gravacoes Portatil normalmente.
+- Dentro do programa, use o botao "Atualizar portatil".
+- O sistema verifica o pacote portatil pronto publicado no GitHub.
+- Se houver versao nova, ele baixa o pacote completo, preserva LucasGravacoes-Dados,
+  fecha o programa, troca os arquivos e abre novamente sozinho.
+- Git, Node.js e npm NAO sao necessarios para atualizar uma copia portatil ja preparada.
+- Sem internet, o programa continua abrindo a versao que ja esta no HD.
 
 IMPORTANTE:
 - Nao remova o HD enquanto houver lote processando ou salvando.
