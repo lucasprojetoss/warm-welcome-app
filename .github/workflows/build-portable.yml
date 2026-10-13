@@ -1,0 +1,106 @@
+name: Build Portable Latest
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lucas-gravacoes-portable-latest
+  cancel-in-progress: true
+
+jobs:
+  build-portable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Instalar dependencias do desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\desktop"
+          npm install --no-audit --no-fund
+
+          if (!(Test-Path ".\node_modules\electron\dist\electron.exe")) {
+            throw "Electron nao foi instalado corretamente."
+          }
+
+          if (!(Test-Path ".\node_modules\lamejs\lame.min.js")) {
+            throw "lamejs nao foi instalado corretamente."
+          }
+
+      - name: Montar pacote portatil
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $buildRoot = Join-Path $env:RUNNER_TEMP 'LucasGravacoesPortableBuild'
+          $portableRoot = Join-Path $buildRoot 'LucasGravacoes-Portable'
+          $zip = Join-Path $env:RUNNER_TEMP 'LucasGravacoes-Portable.zip'
+
+          if (Test-Path $buildRoot) {
+            Remove-Item $buildRoot -Recurse -Force
+          }
+          if (Test-Path $zip) {
+            Remove-Item $zip -Force
+          }
+
+          New-Item -ItemType Directory -Path $portableRoot -Force | Out-Null
+
+          & robocopy.exe "$env:GITHUB_WORKSPACE" "$portableRoot" /E /R:2 /W:1 /XD "$env:GITHUB_WORKSPACE\.git" "$env:GITHUB_WORKSPACE\.github" "$env:GITHUB_WORKSPACE\LucasGravacoes-Dados" /XF "desktop-runtime.log"
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) {
+            throw "Robocopy falhou com codigo $rc."
+          }
+
+          if (!(Test-Path (Join-Path $portableRoot 'desktop\node_modules\electron\dist\electron.exe'))) {
+            throw "O pacote portatil nao contem Electron."
+          }
+
+          if (!(Test-Path (Join-Path $portableRoot 'ABRIR-LUCAS-GRAVACOES-PORTATIL.vbs'))) {
+            throw "O abridor portatil nao foi incluido."
+          }
+
+          & 7z.exe a -tzip "$zip" "$portableRoot"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao compactar pacote portatil."
+          }
+
+          "PORTABLE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Publicar pacote portable-latest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          gh release view portable-latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create portable-latest --title "Lucas Gravacoes Portable - Latest" --notes "Pacote automatico usado pelo botao Atualizar portatil." --latest=false --target "$env:GITHUB_SHA"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Nao foi possivel criar a release portable-latest."
+            }
+          } else {
+            gh release edit portable-latest --title "Lucas Gravacoes Portable - Latest" --notes "Pacote automatico usado pelo botao Atualizar portatil." --latest=false
+            if ($LASTEXITCODE -ne 0) {
+              throw "Nao foi possivel atualizar a release portable-latest."
+            }
+          }
+
+          gh release upload portable-latest "$env:PORTABLE_ZIP#LucasGravacoes-Portable.zip" --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Nao foi possivel publicar LucasGravacoes-Portable.zip."
+          }
