@@ -42,7 +42,7 @@ let currentProgress = {
 };
 
 const LOCAL_PORT = 47831;
-const PORTABLE_VERSION_URL = 'https://raw.githubusercontent.com/lucasprojetoss/warm-welcome-app/main/desktop/package.json';
+const PORTABLE_RELEASE_API = 'https://api.github.com/repos/lucasprojetoss/warm-welcome-app/releases/tags/portable-latest';
 const PORTABLE_RELEASE_URL = 'https://github.com/lucasprojetoss/warm-welcome-app/releases/download/portable-latest/LucasGravacoes-Portable.zip';
 let portableUpdateActive = false;
 const appRoot = path.resolve(__dirname, '..');
@@ -412,10 +412,11 @@ function compareVersions(a, b) {
 
 async function checkPortableUpdate() {
   if (!portableMode) return { portable: false, currentVersion: app.getVersion(), updateAvailable: false };
-  const buffer = await httpsGetBuffer(PORTABLE_VERSION_URL);
-  const remote = JSON.parse(buffer.toString('utf8'));
-  const remoteVersion = String(remote.version || '').trim();
-  if (!remoteVersion) throw new Error('O GitHub não informou a versão disponível.');
+  const buffer = await httpsGetBuffer(PORTABLE_RELEASE_API);
+  const release = JSON.parse(buffer.toString('utf8'));
+  const match = String(release.body || '').match(/version=([0-9]+(?:\.[0-9]+){1,3})/i);
+  if (!match) throw new Error('O pacote portátil ainda está sendo preparado no GitHub.');
+  const remoteVersion = match[1];
   const currentVersion = app.getVersion();
   return {
     portable: true,
